@@ -4,6 +4,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { MaterialIcons } from "@expo/vector-icons";
 import {
   Pressable,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -45,6 +46,8 @@ export function ScreenShell({
   keyboardDismissMode,
   notificationCount,
   stickyHeaderIndices,
+  onRefresh,
+  refreshing,
 }) {
   const canGoBack = navigation.canGoBack();
   const [unreadCount, setUnreadCount] = useState(0);
@@ -102,6 +105,16 @@ export function ScreenShell({
         keyboardShouldPersistTaps={keyboardShouldPersistTaps}
         keyboardDismissMode={keyboardDismissMode}
         stickyHeaderIndices={stickyHeaderIndices}
+        refreshControl={
+          onRefresh ? (
+            <RefreshControl
+              refreshing={!!refreshing}
+              onRefresh={onRefresh}
+              tintColor="#C84B0C"
+              colors={["#C84B0C"]}
+            />
+          ) : undefined
+        }
       >
         {(title || subtitle) && (
           <LinearGradient colors={["#EEF5FF", "#FFFFFF"]} style={ss.heroCard}>
