@@ -291,20 +291,9 @@ export default function SearchTab({ navigation }) {
       noPadding
       background={C.surfaceLow}
       contentContainerStyle={s.screenContent}
+      stickyHeaderIndices={[0]}
     >
-      <View style={s.masthead}>
-        {/* <View style={s.liveChip}>
-          <View style={s.liveDot} />
-          <Text style={s.liveLabel}>CITY CONNECTIONS</Text>
-        </View> */}
-        <Text style={s.headline}>
-          <Text style={s.headlineLight}>Find</Text>
-          {"\n"}
-          Your Yaari<Text style={{ color: C.secondary }}>.</Text>
-        </Text>
-      </View>
-
-      <View style={s.main}>
+      <View style={s.stickySearchPanel}>
         <View style={s.sectionHeader}>
           <Text style={s.sectionLabel}>SEARCH PEOPLE</Text>
         </View>
@@ -314,7 +303,9 @@ export default function SearchTab({ navigation }) {
           onChangeText={setQuery}
           placeholder="Search for friends or usernames..."
         />
+      </View>
 
+      <View style={s.main}>
         {searching ? (
           <>
             {total > 0 && !isLoading && (
@@ -384,54 +375,18 @@ const s = StyleSheet.create({
     paddingHorizontal: 0,
     paddingBottom: 120,
   },
-  masthead: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 22,
-    borderBottomWidth: 2,
-    borderBottomColor: C.onSurface,
-    marginBottom: 6,
-  },
-  liveChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderWidth: 1.5,
-    borderColor: C.secondary,
-    borderRadius: 100,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    alignSelf: "flex-start",
-    marginBottom: 14,
-  },
-  liveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: C.secondary,
-  },
-  liveLabel: {
-    fontSize: 9,
-    fontWeight: "900",
-    color: C.secondary,
-    letterSpacing: 1.4,
-  },
-  headline: {
-    fontSize: 46,
-    fontWeight: "900",
-    color: C.onSurface,
-    lineHeight: 52,
-    letterSpacing: -1.8,
-  },
-  headlineLight: {
-    fontWeight: "300",
-    fontStyle: "italic",
-    fontSize: 38,
-    letterSpacing: -1,
-  },
   main: {
     paddingHorizontal: 20,
     gap: 14,
+    paddingBottom: 120,
+  },
+  stickySearchPanel: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 14,
+    backgroundColor: C.surfaceLow,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border || "#E2E8F0",
   },
 
   // Section header

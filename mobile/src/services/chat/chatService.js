@@ -43,6 +43,11 @@ export const clearConversationMessages = async (userId) => {
   return response.data;
 };
 
+export const deleteConversation = async (userId) => {
+  const response = await apiClient.delete(`/chats/${userId}/conversation`);
+  return response.data;
+};
+
 export const sendImageMessageHttp = async (userId, { uri, fileName, mimeType, ciphertext, iv, isOneTimeView }) => {
   const formData = new FormData();
   formData.append('chatImage', {

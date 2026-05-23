@@ -1,12 +1,10 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ScreenShell } from "./TabShared";
-import {
-  respondToConnectionRequest,
-} from "../../services/users/userService";
+import { respondToConnectionRequest } from "../../services/users/userService";
 import {
   fetchNotifications,
   markAllNotificationsAsRead,
@@ -16,33 +14,50 @@ import { useSnackbar } from "../../store/SnackbarContext";
 const C = {
   bg: "#f5f2ed",
   surface: "#ffffff",
-  surfaceAlt: "#f8f6f2",
   ink: "#0a0a0a",
+  inkLight: "#3d3d3d",
   soft: "#888888",
   line: "#e0dbd4",
   lineLight: "#ece7e0",
   blue: "#004ac6",
   bluePale: "#eef2ff",
   blueLight: "#c7d8ff",
+  accent: "#e8380d",
+  accentPale: "#fff0ed",
   coral: "#C05A5A",
   coralPale: "#FAEAEA",
+  mint: "#007a5e",
+  mintPale: "#ecfdf5",
+  purple: "#7c3aed",
+  purplePale: "#f5f3ff",
+  pink: "#ec4899",
+  pinkPale: "#fdf2f8",
   white: "#ffffff",
+  unreadBg: "#f0f4ff",
+};
+
+const TYPE_META = {
+  connection_request: { icon: "person-add", color: C.blue, bg: C.bluePale },
+  post_liked:        { icon: "thumb-up",   color: C.accent, bg: C.accentPale },
+  post_commented:    { icon: "chat-bubble", color: C.blue, bg: C.bluePale },
+  comment_liked:     { icon: "favorite",   color: C.pink, bg: C.pinkPale },
+  comment_replied:   { icon: "reply",      color: C.purple, bg: C.purplePale },
 };
 
 const FILTERS = [
-  { key: "all", label: "All", types: null },
-  { key: "connection_request", label: "Requests", types: ["connection_request"] },
-  { key: "post_liked", label: "Post Likes", types: ["post_liked"] },
-  { key: "post_commented", label: "Post Comments", types: ["post_commented"] },
-  { key: "comment_liked", label: "Comment Likes", types: ["comment_liked"] },
-  { key: "comment_replied", label: "Comment Replies", types: ["comment_replied"] },
+  { key: "all",              label: "All",      icon: "notifications",  types: null },
+  { key: "connection_request", label: "Requests", icon: "person-add",  types: ["connection_request"] },
+  { key: "post_liked",       label: "Likes",    icon: "thumb-up",       types: ["post_liked"] },
+  { key: "post_commented",   label: "Comments", icon: "chat-bubble",    types: ["post_commented"] },
+  { key: "comment_liked",    label: "Comment Likes", icon: "favorite",  types: ["comment_liked"] },
+  { key: "comment_replied",  label: "Replies",  icon: "reply",          types: ["comment_replied"] },
 ];
 
 function NotificationAvatar({ uri, name }) {
   const [hasError, setHasError] = useState(false);
   const initials = useMemo(
     () =>
-      (name || "CY")
+      (name || "?")
         .split(" ")
         .filter(Boolean)
         .slice(0, 2)
@@ -54,17 +69,13 @@ function NotificationAvatar({ uri, name }) {
 
   if (uri && !hasError) {
     return (
-      <Image
-        source={{ uri }}
-        style={s.avatar}
-        onError={() => setHasError(true)}
-      />
+      <Image source={{ uri }} style={s.avatar} onError={() => setHasError(true)} />
     );
   }
 
   return (
     <View style={s.avatarFallback}>
-      <Text style={s.avatarFallbackText}>{initials}</Text>
+      <Text style={s.avatarInitials}>{initials}</Text>
     </View>
   );
 }
@@ -79,28 +90,35 @@ export default function NotificationsTab({ navigation }) {
   const fabScale = useRef(new Animated.Value(1)).current;
 
   const toRelativeTime = (dateString) => {
-    if (!dateString) return "Just now";
+    if (!dateString) return "now";
     const diffMs = Date.now() - new Date(dateString).getTime();
     const mins = Math.floor(diffMs / 60000);
     const hrs = Math.floor(mins / 60);
     const days = Math.floor(hrs / 24);
-    if (mins < 1) return "Just now";
-    if (mins < 60) return `${mins}m ago`;
-    if (hrs < 24) return `${hrs}h ago`;
-    return `${days}d ago`;
+    if (mins < 1) return "now";
+    if (mins < 60) return `${mins}m`;
+    if (hrs < 24) return `${hrs}h`;
+    return `${days}d`;
   };
 
-  const loadNotifications = async () => {
-    const result = await fetchNotifications();
+  const loadNotifications = useCallback(async (filterKey) => {
+    const filter = FILTERS.find((f) => f.key === (filterKey ?? activeFilter));
+    const typeParam = filter?.types ? filter.types.join(",") : undefined;
+    const result = await fetchNotifications(typeParam);
     if (result.success) setNotifications(result.notifications || []);
     else showSnackbar(result.message || "Unable to load notifications", "error");
-  };
+  }, [showSnackbar, activeFilter]);
 
   useFocusEffect(
     useCallback(() => {
-      loadNotifications();
-    }, [])
+      loadNotifications(activeFilter);
+    }, [activeFilter, loadNotifications])
   );
+
+  useEffect(() => {
+    loadNotifications(activeFilter);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFilter]);
 
   const onMarkAllRead = async () => {
     if (!notifications.some((n) => !n.isRead)) return;
@@ -112,7 +130,7 @@ export default function NotificationsTab({ navigation }) {
       return;
     }
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
-    showSnackbar("All notifications marked as read", "success");
+    showSnackbar("All caught up!", "success");
   };
 
   const onRespond = async (actorId, action) => {
@@ -120,7 +138,7 @@ export default function NotificationsTab({ navigation }) {
     const result = await respondToConnectionRequest(actorId, action);
     setBusyId("");
     if (result.success) {
-      await loadNotifications();
+      await loadNotifications(activeFilter);
       showSnackbar(
         action === "accept" ? "Connection request accepted." : "Connection request declined.",
         "success"
@@ -130,145 +148,454 @@ export default function NotificationsTab({ navigation }) {
     showSnackbar(result.message || "Unable to update request", "error");
   };
 
-  const filteredNotifications = useMemo(() => {
-    const filter = FILTERS.find((f) => f.key === activeFilter);
-    if (!filter || !filter.types) return notifications;
-    return notifications.filter((n) => filter.types.includes(n.type));
-  }, [activeFilter, notifications]);
-
   const hasUnread = notifications.some((n) => !n.isRead);
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   const handleFabPress = () => {
     if (!hasUnread || markingAllRead) return;
     Animated.sequence([
-      Animated.timing(fabScale, { toValue: 0.85, duration: 100, useNativeDriver: true }),
+      Animated.timing(fabScale, { toValue: 0.85, duration: 80, useNativeDriver: true }),
       Animated.spring(fabScale, { toValue: 1, tension: 300, friction: 10, useNativeDriver: true }),
     ]).start();
     onMarkAllRead();
   };
 
   return (
-    <View style={s.rootContainer}>
-    <ScreenShell
-      navigation={navigation}
-      routeName="Notifications"
-      noPadding
-      background={C.bg}
-      contentContainerStyle={s.screenContent}
-      notificationCount={notifications.filter((n) => !n.isRead).length}
-      stickyHeaderIndices={[1]}
-    >
-      <View style={s.masthead}>
-        <Text style={s.heroTitle}>Notifications.</Text>
-        <Text style={s.heroSub}>All your updates in one place.</Text>
-      </View>
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={s.filterRow}
+    <View style={s.root}>
+      <ScreenShell
+        navigation={navigation}
+        routeName="Notifications"
+        noPadding
+        background={C.bg}
+        contentContainerStyle={s.screenContent}
+        notificationCount={unreadCount}
+        stickyHeaderIndices={[0]}
       >
-        {FILTERS.map((filter) => {
-          const isActive = filter.key === activeFilter;
-          return (
-            <Pressable
-              key={filter.key}
-              onPress={() => setActiveFilter(filter.key)}
-              style={[s.filterChip, isActive && s.filterChipActive]}
-            >
-              <Text style={[s.filterChipText, isActive && s.filterChipTextActive]}>
-                {filter.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-
-      <View style={s.feed}>
-        {filteredNotifications.length === 0 ? (
-          <View style={s.emptyWrap}>
-            <MaterialIcons name="notifications-none" size={34} color={C.soft} />
-            <Text style={s.emptyTitle}>No notifications found</Text>
-            <Text style={s.emptySub}>Try a different filter or check back later.</Text>
-          </View>
-        ) : (
-          filteredNotifications.map((notif, idx) => (
-            <View key={notif._id} style={[s.row, idx !== filteredNotifications.length - 1 && s.rowBorder]}>
-              <NotificationAvatar uri={notif.actor?.profileImageUri} name={notif.actor?.fullName} />
-
-              <View style={s.rowContent}>
-                <View style={s.rowTop}>
-                  <Text style={s.title}>{notif.message || "You have a new notification"}</Text>
-                  {!notif.isRead ? <View style={s.unreadDot} /> : null}
-                </View>
-                <Text style={s.meta}>
-                  @{notif.actor?.username || "user"}
-                  {notif.actor?.city ? ` · ${notif.actor.city}` : ""}
-                </Text>
-                <Text style={s.timeText}>{toRelativeTime(notif.createdAt)}</Text>
-
-                {notif.type === "connection_request" && notif.actionable ? (
-                  <View style={s.actionRow}>
-                    <Pressable
-                      style={s.acceptBtn}
-                      disabled={!notif.actor?._id || busyId === `${notif.actor?._id}:accept`}
-                      onPress={() => onRespond(notif.actor?._id, "accept")}
-                    >
-                      <MaterialIcons name="check" size={16} color={C.white} />
-                      <Text style={s.acceptBtnText}>Accept</Text>
-                    </Pressable>
-                    <Pressable
-                      style={s.declineBtn}
-                      disabled={!notif.actor?._id || busyId === `${notif.actor?._id}:decline`}
-                      onPress={() => onRespond(notif.actor?._id, "decline")}
-                    >
-                      <MaterialIcons name="close" size={16} color={C.coral} />
-                      <Text style={s.declineBtnText}>Decline</Text>
-                    </Pressable>
-                  </View>
-                ) : null}
+        {/* ── STICKY HEADER ── */}
+        <View style={s.stickyHeader}>
+          {/* Title row */}
+          <View style={s.titleRow}>
+            <Text style={s.screenTitle}>Notifications</Text>
+            {unreadCount > 0 && (
+              <View style={s.unreadBadge}>
+                <Text style={s.unreadBadgeText}>{unreadCount} new</Text>
               </View>
-            </View>
-          ))
-        )}
-      </View>
-    </ScreenShell>
+            )}
+          </View>
 
-    {hasUnread && (
-      <Animated.View
-        style={[
-          s.fab,
-          { bottom: 100 + insets.bottom, transform: [{ scale: fabScale }] },
-        ]}
-      >
-        <Pressable
-          onPress={handleFabPress}
-          disabled={markingAllRead}
-          style={({ pressed }) => [
-            s.fabInner,
-            pressed && { opacity: 0.85 },
-            markingAllRead && { opacity: 0.6 },
-          ]}
+          {/* Filter chips */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={s.filterRow}
+          >
+            {FILTERS.map((filter) => {
+              const isActive = filter.key === activeFilter;
+              return (
+                <Pressable
+                  key={filter.key}
+                  onPress={() => setActiveFilter(filter.key)}
+                  style={[s.filterChip, isActive && s.filterChipActive]}
+                >
+                  <MaterialIcons
+                    name={filter.icon}
+                    size={12}
+                    color={isActive ? C.blue : C.soft}
+                  />
+                  <Text style={[s.filterChipText, isActive && s.filterChipTextActive]}>
+                    {filter.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        {/* ── NOTIFICATION FEED ── */}
+        <View style={s.feed}>
+          {notifications.length === 0 ? (
+            <View style={s.emptyWrap}>
+              <View style={s.emptyIcon}>
+                <MaterialIcons name="notifications-none" size={30} color={C.blue} />
+              </View>
+              <Text style={s.emptyTitle}>All clear</Text>
+              <Text style={s.emptySub}>
+                {activeFilter === "all"
+                  ? "No notifications yet. We'll let you know when something happens."
+                  : "No notifications for this filter. Try another."}
+              </Text>
+            </View>
+          ) : (
+            notifications.map((notif, idx) => {
+              const typeMeta = TYPE_META[notif.type] || TYPE_META.post_liked;
+              const isUnread = !notif.isRead;
+              const isLast = idx === notifications.length - 1;
+
+              return (
+                <View
+                  key={notif._id}
+                  style={[s.row, isUnread && s.rowUnread, !isLast && s.rowBorder]}
+                >
+                  {/* Unread accent bar */}
+                  {isUnread && <View style={s.accentBar} />}
+
+                  {/* Avatar + type badge */}
+                  <View style={s.avatarWrap}>
+                    <NotificationAvatar
+                      uri={notif.actor?.profileImageUri}
+                      name={notif.actor?.fullName}
+                    />
+                    <View style={[s.typeBadge, { backgroundColor: typeMeta.bg }]}>
+                      <MaterialIcons name={typeMeta.icon} size={9} color={typeMeta.color} />
+                    </View>
+                  </View>
+
+                  {/* Content */}
+                  <View style={s.rowContent}>
+                    <Text style={[s.message, isUnread && s.messageUnread]} numberOfLines={2}>
+                      {notif.message || "You have a new notification"}
+                    </Text>
+
+                    <View style={s.metaRow}>
+                      <Text style={s.metaUsername}>@{notif.actor?.username || "user"}</Text>
+                      {notif.actor?.city ? (
+                        <>
+                          <Text style={s.metaDot}>·</Text>
+                          <Text style={s.metaCity}>{notif.actor.city}</Text>
+                        </>
+                      ) : null}
+                      <Text style={s.metaDot}>·</Text>
+                      <Text style={s.metaTime}>{toRelativeTime(notif.createdAt)}</Text>
+                    </View>
+
+                    {/* Connection request actions */}
+                    {notif.type === "connection_request" && notif.actionable && (
+                      <View style={s.actionRow}>
+                        <Pressable
+                          style={[
+                            s.acceptBtn,
+                            busyId === `${notif.actor?._id}:accept` && s.btnBusy,
+                          ]}
+                          disabled={!notif.actor?._id || !!busyId}
+                          onPress={() => onRespond(notif.actor?._id, "accept")}
+                        >
+                          <MaterialIcons name="check" size={13} color={C.white} />
+                          <Text style={s.acceptBtnText}>Accept</Text>
+                        </Pressable>
+                        <Pressable
+                          style={[
+                            s.declineBtn,
+                            busyId === `${notif.actor?._id}:decline` && s.btnBusy,
+                          ]}
+                          disabled={!notif.actor?._id || !!busyId}
+                          onPress={() => onRespond(notif.actor?._id, "decline")}
+                        >
+                          <Text style={s.declineBtnText}>Decline</Text>
+                        </Pressable>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Unread dot */}
+                  {isUnread && <View style={s.unreadDot} />}
+                </View>
+              );
+            })
+          )}
+        </View>
+      </ScreenShell>
+
+      {/* Mark all read FAB */}
+      {hasUnread && (
+        <Animated.View
+          style={[s.fab, { bottom: 100 + insets.bottom, transform: [{ scale: fabScale }] }]}
         >
-          <MaterialIcons name="done-all" size={22} color={C.white} />
-        </Pressable>
-      </Animated.View>
-    )}
+          <Pressable
+            onPress={handleFabPress}
+            disabled={markingAllRead}
+            style={({ pressed }) => [s.fabInner, pressed && { opacity: 0.85 }, markingAllRead && { opacity: 0.6 }]}
+          >
+            <MaterialIcons name="done-all" size={20} color={C.white} />
+          </Pressable>
+        </Animated.View>
+      )}
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  rootContainer: {
+  root: {
     flex: 1,
     backgroundColor: C.bg,
   },
   screenContent: {
     paddingHorizontal: 0,
     paddingBottom: 120,
-    backgroundColor: C.bg,
-    gap: 14,
   },
+
+  /* ── STICKY HEADER ── */
+  stickyHeader: {
+    backgroundColor: C.bg,
+    paddingTop: 10,
+    paddingBottom: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: C.line,
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 20,
+    marginBottom: 10,
+  },
+  screenTitle: {
+    fontSize: 22,
+    fontWeight: "900",
+    color: C.ink,
+    letterSpacing: -0.6,
+  },
+  unreadBadge: {
+    backgroundColor: C.blue,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 20,
+  },
+  unreadBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: C.white,
+    letterSpacing: 0.3,
+  },
+  filterRow: {
+    paddingHorizontal: 20,
+    paddingBottom: 2,
+    gap: 8,
+    flexDirection: "row",
+  },
+  filterChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    height: 32,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: C.bg,
+    borderWidth: 1,
+    borderColor: C.line,
+  },
+  filterChipActive: {
+    backgroundColor: C.bluePale,
+    borderColor: C.blueLight,
+  },
+  filterChipText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: C.soft,
+    letterSpacing: 0.1,
+  },
+  filterChipTextActive: {
+    color: C.blue,
+    fontWeight: "800",
+  },
+
+  /* ── FEED ── */
+  feed: {
+    backgroundColor: C.surface,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: C.line,
+  },
+
+  /* ── NOTIFICATION ROW ── */
+  row: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    backgroundColor: C.surface,
+    position: "relative",
+  },
+  rowUnread: {
+    backgroundColor: C.unreadBg,
+  },
+  rowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: C.lineLight,
+  },
+  accentBar: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 3,
+    backgroundColor: C.blue,
+    borderTopRightRadius: 2,
+    borderBottomRightRadius: 2,
+  },
+
+  /* Avatar */
+  avatarWrap: {
+    position: "relative",
+    marginRight: 12,
+    flexShrink: 0,
+  },
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    borderColor: C.line,
+  },
+  avatarFallback: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    borderColor: C.line,
+    backgroundColor: C.bluePale,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarInitials: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: C.blue,
+    letterSpacing: 0.5,
+  },
+  typeBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: C.surface,
+  },
+
+  /* Row content */
+  rowContent: {
+    flex: 1,
+  },
+  message: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: C.inkLight,
+    lineHeight: 19,
+    marginBottom: 4,
+  },
+  messageUnread: {
+    fontWeight: "800",
+    color: C.ink,
+  },
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 4,
+  },
+  metaUsername: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: C.soft,
+  },
+  metaDot: {
+    fontSize: 11,
+    color: C.line,
+    fontWeight: "700",
+  },
+  metaCity: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: C.soft,
+  },
+  metaTime: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: C.soft,
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: C.blue,
+    marginLeft: 8,
+    marginTop: 4,
+    flexShrink: 0,
+  },
+
+  /* Connection request actions */
+  actionRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 10,
+  },
+  acceptBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: C.blue,
+  },
+  acceptBtnText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: C.white,
+    letterSpacing: 0.2,
+  },
+  declineBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: C.coralPale,
+    borderWidth: 1,
+    borderColor: "#f1c0c0",
+  },
+  declineBtnText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: C.coral,
+    letterSpacing: 0.2,
+  },
+  btnBusy: {
+    opacity: 0.5,
+  },
+
+  /* Empty state */
+  emptyWrap: {
+    paddingVertical: 48,
+    paddingHorizontal: 32,
+    alignItems: "center",
+    gap: 10,
+  },
+  emptyIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: C.bluePale,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: "900",
+    color: C.ink,
+    letterSpacing: -0.3,
+  },
+  emptySub: {
+    textAlign: "center",
+    color: C.soft,
+    fontSize: 13,
+    fontWeight: "500",
+    lineHeight: 19,
+  },
+
+  /* FAB */
   fab: {
     position: "absolute",
     right: 18,
@@ -276,9 +603,9 @@ const s = StyleSheet.create({
     elevation: 12,
   },
   fabInner: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
+    width: 50,
+    height: 50,
+    borderRadius: 14,
     backgroundColor: C.blue,
     alignItems: "center",
     justifyContent: "center",
@@ -287,189 +614,5 @@ const s = StyleSheet.create({
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
     elevation: 12,
-  },
-  masthead: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 18,
-    borderBottomWidth: 2,
-    borderBottomColor: C.ink,
-  },
-  heroTitle: {
-    fontSize: 40,
-    fontWeight: "900",
-    letterSpacing: -1.2,
-    color: C.ink,
-  },
-  heroSub: {
-    marginTop: 4,
-    fontSize: 13,
-    color: C.soft,
-    fontWeight: "600",
-  },
-  filterRow: {
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 8,
-    gap: 8,
-  },
-  filterChip: {
-    height: 34,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    backgroundColor: C.bg,
-    borderWidth: 1,
-    borderColor: C.line,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  filterChipActive: {
-    backgroundColor: C.bluePale,
-    borderColor: C.blueLight,
-  },
-  filterChipText: {
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 0.6,
-    color: C.soft,
-    textTransform: "uppercase",
-  },
-  filterChipTextActive: {
-    color: C.blue,
-  },
-  feed: {
-    width: "100%",
-    backgroundColor: C.bg,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: C.line,
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    width: "100%",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  rowBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: C.lineLight,
-  },
-  rowContent: {
-    flex: 1,
-  },
-  rowTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  title: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: "800",
-    color: C.ink,
-    lineHeight: 19,
-  },
-  unreadDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: C.blue,
-    marginTop: 2,
-  },
-  avatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: C.line,
-  },
-  avatarFallback: {
-    width: 46,
-    height: 46,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: C.line,
-    backgroundColor: C.bluePale,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarFallbackText: {
-    fontSize: 13,
-    fontWeight: "900",
-    color: C.blue,
-    letterSpacing: 0.4,
-  },
-  meta: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: C.soft,
-    marginTop: 4,
-  },
-  timeText: {
-    fontSize: 10,
-    color: C.soft,
-    marginTop: 3,
-    fontWeight: "700",
-  },
-  actionRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 10,
-  },
-  acceptBtn: {
-    minWidth: 92,
-    height: 34,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: C.blue,
-    flexDirection: "row",
-    gap: 6,
-    paddingHorizontal: 10,
-  },
-  acceptBtnText: {
-    fontSize: 11,
-    fontWeight: "900",
-    color: C.white,
-    letterSpacing: 0.5,
-  },
-  declineBtn: {
-    minWidth: 92,
-    height: 34,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: C.coralPale,
-    borderWidth: 1,
-    borderColor: "#f1c0c0",
-    flexDirection: "row",
-    gap: 6,
-    paddingHorizontal: 10,
-  },
-  declineBtnText: {
-    fontSize: 11,
-    fontWeight: "900",
-    color: C.coral,
-    letterSpacing: 0.5,
-  },
-  emptyWrap: {
-    paddingVertical: 32,
-    paddingHorizontal: 20,
-    alignItems: "center",
-    gap: 6,
-  },
-  emptyTitle: {
-    fontSize: 14,
-    fontWeight: "900",
-    color: C.ink,
-  },
-  emptySub: {
-    textAlign: "center",
-    color: C.soft,
-    fontSize: 12,
-    fontWeight: "600",
   },
 });

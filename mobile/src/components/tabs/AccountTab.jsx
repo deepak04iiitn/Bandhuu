@@ -634,18 +634,6 @@ export default function AccountTab({ navigation }) {
       background={T.bg}
       contentContainerStyle={st.screenContent}
     >
-      <View style={st.masthead}>
-        {/* <View style={st.liveChip}>
-          <View style={st.liveDot} />
-          <Text style={st.liveLabel}>YOUR ACCOUNT</Text>
-        </View> */}
-        <Text style={st.heroTitle}>
-          <Text style={st.heroTitleLight}>Manage</Text>
-          {"\n"}
-          Your Profile<Text style={{ color: T.coral }}>.</Text>
-        </Text>
-      </View>
-
       {/* ── Hero Card ─────────────────────────────────────────────────── */}
       <View style={st.heroCard}>
 

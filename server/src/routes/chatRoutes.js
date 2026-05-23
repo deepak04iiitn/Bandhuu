@@ -8,6 +8,7 @@ import {
   sendImageMessage,
   viewOneTimeMsg,
   clearChat,
+  deleteConversation,
 } from '../controllers/chatController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import { handleChatImageUpload } from '../middleware/uploadMiddleware.js';
@@ -24,5 +25,6 @@ router.post('/:userId/image', handleChatImageUpload, sendImageMessage);
 router.post('/one-time-view/:messageId', viewOneTimeMsg);
 router.put('/:userId/read', readConversation);
 router.delete('/:userId', clearChat);
+router.delete('/:userId/conversation', deleteConversation);
 
 export default router;

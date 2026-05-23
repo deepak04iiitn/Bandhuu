@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Message from '../models/Message.js';
 import User from '../models/User.js';
 import Block from '../models/Block.js';
+import Conversation from '../models/Conversation.js';
 
 const toIdString = (value) => value?.toString();
 
@@ -68,6 +69,16 @@ export const sendEncryptedMessage = async ({
     imageUri,
     isOneTimeView,
   });
+
+  await Conversation.findOneAndUpdate(
+    { conversationKey },
+    {
+      $set: { lastActivity: new Date() },
+      $addToSet: { participants: { $each: [senderOid, receiverOid] } },
+      $pull: { deletedFor: { $in: [senderOid, receiverOid] } },
+    },
+    { upsert: true }
+  );
 
   return message;
 };
@@ -147,14 +158,15 @@ export const getTotalUnreadCount = async (userId) => {
 export const getConversationList = async (userId) => {
   const userOid = new mongoose.Types.ObjectId(toIdString(userId));
   const userIdStr = toIdString(userId);
-  const query = { participants: userOid, deletedFor: { $ne: userOid } };
 
-  const [latestMessages, blockedByMe, blockedMe] = await Promise.all([
-    Message.find(query)
-      .sort({ createdAt: -1 })
-      .limit(500)
-      .populate('sender', 'fullName username profileImageUri city isOnline lastSeenAt')
-      .populate('receiver', 'fullName username profileImageUri city isOnline lastSeenAt'),
+  const [activeConversations, blockedByMe, blockedMe] = await Promise.all([
+    Conversation.find({
+      participants: userOid,
+      deletedFor: { $ne: userOid },
+    })
+      .sort({ lastActivity: -1 })
+      .limit(100)
+      .populate('participants', 'fullName username profileImageUri city isOnline lastSeenAt'),
     Block.find({ blocker: userOid }).select('blocked').lean(),
     Block.find({ blocked: userOid }).select('blocker').lean(),
   ]);
@@ -162,56 +174,6 @@ export const getConversationList = async (userId) => {
   const blockedSet = new Set();
   blockedByMe.forEach((b) => blockedSet.add(b.blocked.toString()));
   blockedMe.forEach((b) => blockedSet.add(b.blocker.toString()));
-
-  const seen = new Set();
-  const list = [];
-  for (const msg of latestMessages) {
-    if (seen.has(msg.conversationKey)) continue;
-    seen.add(msg.conversationKey);
-
-    const peer = toIdString(msg.sender?._id) === userIdStr ? msg.receiver : msg.sender;
-    if (!peer?._id) continue;
-
-    const peerIdStr = toIdString(peer._id);
-    const peerBlocked = blockedSet.has(peerIdStr);
-
-    list.push({
-      conversationKey: msg.conversationKey,
-      isBlocked: peerBlocked,
-      peer: peerBlocked
-        ? {
-            _id: peer._id,
-            fullName: 'Unknown User',
-            username: 'unknown',
-            profileImageUri: '',
-            city: '',
-            isOnline: false,
-            lastSeenAt: null,
-          }
-        : {
-            _id: peer._id,
-            fullName: peer.fullName,
-            username: peer.username,
-            profileImageUri: peer.profileImageUri || '',
-            city: peer.city || '',
-            isOnline: peer.isOnline,
-            lastSeenAt: peer.lastSeenAt,
-          },
-      lastMessage: {
-        _id: msg._id,
-        sender: msg.sender?._id,
-        receiver: msg.receiver?._id,
-        ciphertext: msg.ciphertext,
-        iv: msg.iv,
-        createdAt: msg.createdAt,
-        readAt: msg.readAt,
-        messageType: msg.messageType || 'text',
-        imageUri: msg.imageUri || null,
-        isOneTimeView: msg.isOneTimeView || false,
-        oneTimeViewedAt: msg.oneTimeViewedAt || null,
-      },
-    });
-  }
 
   const unreadRows = await Message.aggregate([
     { $match: { receiver: userOid, readAt: null, deletedFor: { $ne: userOid } } },
@@ -223,10 +185,71 @@ export const getConversationList = async (userId) => {
     unreadMap[row._id] = row.count;
   }
 
-  return list.map((item) => ({
-    ...item,
-    unreadCount: unreadMap[item.conversationKey] || 0,
-  }));
+  const list = await Promise.all(
+    activeConversations.map(async (conv) => {
+      const peer = conv.participants.find((p) => toIdString(p._id) !== userIdStr);
+      if (!peer) return null;
+
+      const peerIdStr = toIdString(peer._id);
+      const peerBlocked = blockedSet.has(peerIdStr);
+
+      const lastMsg = await Message.findOne({
+        conversationKey: conv.conversationKey,
+        deletedFor: { $ne: userOid },
+      }).sort({ createdAt: -1 });
+
+      return {
+        conversationKey: conv.conversationKey,
+        isBlocked: peerBlocked,
+        peer: peerBlocked
+          ? {
+              _id: peer._id,
+              fullName: 'Unknown User',
+              username: 'unknown',
+              profileImageUri: '',
+              city: '',
+              isOnline: false,
+              lastSeenAt: null,
+            }
+          : {
+              _id: peer._id,
+              fullName: peer.fullName,
+              username: peer.username,
+              profileImageUri: peer.profileImageUri || '',
+              city: peer.city || '',
+              isOnline: peer.isOnline,
+              lastSeenAt: peer.lastSeenAt,
+            },
+        lastMessage: lastMsg
+          ? {
+              _id: lastMsg._id,
+              sender: lastMsg.sender?._id,
+              receiver: lastMsg.receiver?._id,
+              ciphertext: lastMsg.ciphertext,
+              iv: lastMsg.iv,
+              createdAt: lastMsg.createdAt,
+              readAt: lastMsg.readAt,
+              messageType: lastMsg.messageType || 'text',
+              imageUri: lastMsg.imageUri || null,
+              isOneTimeView: lastMsg.isOneTimeView || false,
+              oneTimeViewedAt: lastMsg.oneTimeViewedAt || null,
+            }
+          : null,
+      };
+    })
+  );
+
+  return list
+    .filter(Boolean)
+    .map((item) => ({
+      ...item,
+      unreadCount: unreadMap[item.conversationKey] || 0,
+    }))
+    .sort((a, b) => {
+      const dateA = a.lastMessage?.createdAt || new Date(0);
+      const dateB = b.lastMessage?.createdAt || new Date(0);
+      return dateB - dateA;
+    });
 };
 
 export const reactToMessage = async ({ messageId, userId, emoji }) => {
@@ -270,6 +293,23 @@ export const clearChatForUser = async ({ userId, targetUserId }) => {
   const conversationKey = buildConversationKey(userId, targetUserId);
   const userOid = new mongoose.Types.ObjectId(toIdString(userId));
 
+  await Message.updateMany(
+    { conversationKey, deletedFor: { $ne: userOid } },
+    { $addToSet: { deletedFor: userOid } }
+  );
+};
+
+export const deleteConversationForUser = async ({ userId, targetUserId }) => {
+  const conversationKey = buildConversationKey(userId, targetUserId);
+  const userOid = new mongoose.Types.ObjectId(toIdString(userId));
+
+  // 1. Mark for removal from list
+  await Conversation.updateOne(
+    { conversationKey },
+    { $addToSet: { deletedFor: userOid } }
+  );
+
+  // 2. Also clear all messages for this user (they won't see them if they restart the chat)
   await Message.updateMany(
     { conversationKey, deletedFor: { $ne: userOid } },
     { $addToSet: { deletedFor: userOid } }

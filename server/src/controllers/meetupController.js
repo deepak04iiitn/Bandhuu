@@ -52,10 +52,33 @@ export const createMeetup = async (req, res) => {
 
 export const getMeetups = async (req, res) => {
   try {
-    const { status, hometown } = req.query;
-    const query = {};
-    if (status) query.status = status;
-    if (hometown) query.hometown = { $regex: hometown, $options: 'i' };
+    const { status, q, date } = req.query;
+    const conditions = [];
+
+    if (status) conditions.push({ status });
+
+    if (q?.trim()) {
+      const regex = new RegExp(q.trim(), 'i');
+      conditions.push({
+        $or: [
+          { title: regex },
+          { details: regex },
+          { hometown: regex },
+          { venue: regex },
+          { meetupLocation: regex },
+        ],
+      });
+    }
+
+    if (date) {
+      const start = new Date(date);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(date);
+      end.setHours(23, 59, 59, 999);
+      conditions.push({ date: { $gte: start, $lte: end } });
+    }
+
+    const query = conditions.length > 0 ? { $and: conditions } : {};
 
     const meetups = await Meetup.find(query)
       .populate('user', POPULATE_USER)

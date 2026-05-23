@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Animated,
@@ -224,6 +224,8 @@ export default function ActivityDetailScreen({ navigation, route }) {
   const [connReportTarget, setConnReportTarget] = useState(null);
   const [reportBusy, setReportBusy] = useState(false);
   const [connSearch, setConnSearch] = useState("");
+  const connDebounceRef = useRef(null);
+  const connSearchIsInitial = useRef(true);
 
   const [editForm, setEditForm] = useState({
     title: "",
@@ -287,17 +289,21 @@ export default function ActivityDetailScreen({ navigation, route }) {
   const myMeetups = useMemo(() => items.filter((x) => x.kind === "Meetup"), [items]);
   const activePostItems = postsSubTab === "meetups" ? myMeetups : myPosts;
 
-  const filteredConnections = useMemo(() => {
-    if (!connSearch.trim()) return items;
-    const q = connSearch.toLowerCase();
-    return items.filter(
-      (c) =>
-        c.fullName?.toLowerCase().includes(q) ||
-        c.username?.toLowerCase().includes(q) ||
-        c.hometownCity?.toLowerCase().includes(q) ||
-        c.city?.toLowerCase().includes(q)
-    );
-  }, [items, connSearch]);
+  // Debounced server-side connections search
+  useEffect(() => {
+    if (type !== "connections") return;
+    if (connSearchIsInitial.current) {
+      connSearchIsInitial.current = false;
+      return; // initial load is handled by the mount effect below
+    }
+    if (connDebounceRef.current) clearTimeout(connDebounceRef.current);
+    const delay = connSearch.trim() ? 350 : 0;
+    connDebounceRef.current = setTimeout(async () => {
+      const result = await getMyConnections(connSearch.trim() || undefined);
+      if (result.success) setItems(result.connections || []);
+    }, delay);
+    return () => clearTimeout(connDebounceRef.current);
+  }, [connSearch, type]);
 
   const onRemoveConnection = async (id) => {
     const res = await removeConnection(id);
@@ -712,7 +718,9 @@ export default function ActivityDetailScreen({ navigation, route }) {
       noPadding
       background={T.bg}
       contentContainerStyle={st.screenContent}
+      stickyHeaderIndices={[1]}
     >
+      {/* Child 0: Masthead (scrolls away) */}
       <View style={st.masthead}>
         <View style={st.topChip}>
           <Text style={st.topChipText}>MY ACTIVITY</Text>
@@ -728,47 +736,98 @@ export default function ActivityDetailScreen({ navigation, route }) {
         </Text>
       </View>
 
-      {type === "connections" ? (
-        <View style={st.connectionsFeed}>
-          {!isLoading && items.length > 0 && (
-            <View style={st.searchWrap}>
-              <View style={st.searchBar}>
-                <MaterialIcons name="search" size={18} color={T.mute} style={{ marginRight: 8 }} />
-                <TextInput
-                  style={st.searchInput}
-                  placeholder="Search connections..."
-                  placeholderTextColor={T.mute}
-                  value={connSearch}
-                  onChangeText={setConnSearch}
-                  returnKeyType="search"
-                  autoCorrect={false}
-                />
-                {connSearch.length > 0 && (
-                  <Pressable onPress={() => setConnSearch("")} hitSlop={8}>
-                    <MaterialIcons name="close" size={16} color={T.soft} />
-                  </Pressable>
-                )}
-              </View>
-              {connSearch.trim().length > 0 && (
-                <Text style={st.searchCount}>
-                  {filteredConnections.length}{" "}
-                  {filteredConnections.length === 1 ? "result" : "results"}
-                </Text>
+      {/* Child 1: Sticky panel — search bar (connections) or sub-tabs (posts) */}
+      <View style={st.stickyPanel}>
+        {type === "connections" && !isLoading && items.length > 0 && (
+          <View style={st.searchWrap}>
+            <View style={st.searchBar}>
+              <MaterialIcons name="search" size={18} color={T.mute} style={{ marginRight: 8 }} />
+              <TextInput
+                style={st.searchInput}
+                placeholder="Search connections..."
+                placeholderTextColor={T.mute}
+                value={connSearch}
+                onChangeText={setConnSearch}
+                returnKeyType="search"
+                autoCorrect={false}
+              />
+              {connSearch.length > 0 && (
+                <Pressable onPress={() => setConnSearch("")} hitSlop={8}>
+                  <MaterialIcons name="close" size={16} color={T.soft} />
+                </Pressable>
               )}
             </View>
-          )}
+            {connSearch.trim().length > 0 && (
+              <Text style={st.searchCount}>
+                {items.length}{" "}
+                {items.length === 1 ? "result" : "results"}
+              </Text>
+            )}
+          </View>
+        )}
+        {type === "posts" && (
+          <View style={st.subTabRow}>
+            {[
+              { key: "posts", label: "POSTS", icon: "description", count: myPosts.length },
+              { key: "meetups", label: "MEETUPS", icon: "event", count: myMeetups.length },
+            ].map((tab) => (
+              <Pressable
+                key={tab.key}
+                onPress={() => setPostsSubTab(tab.key)}
+                style={[
+                  st.subTabPill,
+                  postsSubTab === tab.key && st.subTabPillActive,
+                ]}
+              >
+                <MaterialIcons
+                  name={tab.icon}
+                  size={15}
+                  color={postsSubTab === tab.key ? T.white : T.soft}
+                />
+                <Text
+                  style={[
+                    st.subTabText,
+                    postsSubTab === tab.key && st.subTabTextActive,
+                  ]}
+                >
+                  {tab.label}
+                </Text>
+                <View
+                  style={[
+                    st.subTabCount,
+                    postsSubTab === tab.key && st.subTabCountActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      st.subTabCountText,
+                      postsSubTab === tab.key && st.subTabCountTextActive,
+                    ]}
+                  >
+                    {tab.count}
+                  </Text>
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        )}
+      </View>
+
+      {/* Child 2+: Content */}
+      {type === "connections" ? (
+        <View style={st.connectionsFeed}>
           {isLoading ? (
             <Text style={st.emptyText}>Loading...</Text>
           ) : items.length === 0 ? (
             <Text style={st.emptyText}>No connections yet.</Text>
-          ) : filteredConnections.length === 0 ? (
+          ) : items.length === 0 ? (
             <View style={st.emptySearchWrap}>
               <MaterialIcons name="search-off" size={36} color={T.line} />
               <Text style={st.emptyText}>No matches found</Text>
             </View>
           ) : (
-            filteredConnections.map((item, idx) => {
-              const isLast = idx === filteredConnections.length - 1;
+            items.map((item, idx) => {
+              const isLast = idx === items.length - 1;
               return (
                 <View
                   key={item._id}
@@ -904,52 +963,6 @@ export default function ActivityDetailScreen({ navigation, route }) {
         </View>
       ) : (
         <>
-          {/* Sub-tab toggle */}
-          <View style={st.subTabRow}>
-            {[
-              { key: "posts", label: "POSTS", icon: "description", count: myPosts.length },
-              { key: "meetups", label: "MEETUPS", icon: "event", count: myMeetups.length },
-            ].map((tab) => (
-              <Pressable
-                key={tab.key}
-                onPress={() => setPostsSubTab(tab.key)}
-                style={[
-                  st.subTabPill,
-                  postsSubTab === tab.key && st.subTabPillActive,
-                ]}
-              >
-                <MaterialIcons
-                  name={tab.icon}
-                  size={15}
-                  color={postsSubTab === tab.key ? T.white : T.soft}
-                />
-                <Text
-                  style={[
-                    st.subTabText,
-                    postsSubTab === tab.key && st.subTabTextActive,
-                  ]}
-                >
-                  {tab.label}
-                </Text>
-                <View
-                  style={[
-                    st.subTabCount,
-                    postsSubTab === tab.key && st.subTabCountActive,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      st.subTabCountText,
-                      postsSubTab === tab.key && st.subTabCountTextActive,
-                    ]}
-                  >
-                    {tab.count}
-                  </Text>
-                </View>
-              </Pressable>
-            ))}
-          </View>
-
           <View style={st.postsFeed}>
             {isLoading ? (
               <Text style={st.emptyText}>Loading...</Text>
@@ -1294,8 +1307,14 @@ const st = StyleSheet.create({
   screenContent: {
     paddingHorizontal: 0,
     paddingBottom: 120,
-    gap: 14,
+    gap: 0,
     backgroundColor: T.bg,
+  },
+
+  stickyPanel: {
+    backgroundColor: T.bg,
+    borderBottomWidth: 1,
+    borderBottomColor: T.line,
   },
   masthead: {
     paddingHorizontal: 20,
@@ -1339,6 +1358,7 @@ const st = StyleSheet.create({
   subTabRow: {
     flexDirection: "row",
     marginHorizontal: 20,
+    marginVertical: 10,
     backgroundColor: T.bgDeep,
     borderRadius: 12,
     padding: 4,
@@ -1735,14 +1755,13 @@ const st = StyleSheet.create({
   connectionsFeed: {
     width: "100%",
     backgroundColor: T.bg,
-    borderTopWidth: 1,
     borderBottomWidth: 1,
     borderColor: T.line,
   },
   searchWrap: {
     paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 6,
+    paddingTop: 10,
+    paddingBottom: 10,
   },
   searchBar: {
     flexDirection: "row",

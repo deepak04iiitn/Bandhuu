@@ -38,6 +38,7 @@ import {
   markConversationRead,
   setChatHandlers,
   clearConversationMessages,
+  deleteConversation,
   getChatSocket,
   sendMessageViaSocket,
   emitReadReceipt,
@@ -573,7 +574,7 @@ export default function MessagesTab({ navigation, route }) {
               item?.lastMessage?.ciphertext || "",
               item?.lastMessage?.iv || "",
               item?.peer?._id
-            ) || "Encrypted message",
+            ) || "Tap to chat",
         }))
       );
       setConnections(connRows?.connections || []);
@@ -647,7 +648,7 @@ export default function MessagesTab({ navigation, route }) {
           peer,
           lastMessage: msg,
           unreadCount: isForMe && !isOpen ? (existing?.unreadCount || 0) + 1 : existing?.unreadCount || 0,
-          preview: decrypt(msg.ciphertext || "", msg.iv || "", peer?._id) || "Encrypted message",
+          preview: decrypt(msg.ciphertext || "", msg.iv || "", peer?._id) || "Tap to chat",
         };
         return [next, ...prev.filter((c) => c.conversationKey !== msg.conversationKey)];
       });
@@ -995,8 +996,8 @@ export default function MessagesTab({ navigation, route }) {
   const confirmDeleteConversation = async () => {
     if (!deleteTarget?.peer?._id) return;
     try {
-      await clearConversationMessages(deleteTarget.peer._id);
-      showSnackbar("Chat deleted", "success");
+      await deleteConversation(deleteTarget.peer._id);
+      showSnackbar("Chat deleted and removed from list", "success");
       loadConversations();
     } catch {
       showSnackbar("Failed to delete chat", "error");
@@ -2481,20 +2482,6 @@ export default function MessagesTab({ navigation, route }) {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* ── MASTHEAD ── */}
-        <View style={st.masthead}>
-          <View style={st.mastheadTop}>
-            <View style={st.liveChip}>
-              <View style={st.liveDot} />
-              <Text style={st.liveLabel}>ENCRYPTED CHATS</Text>
-            </View>
-          </View>
-          <Text style={st.heroTitle}>
-            <Text style={st.heroTitleLight}>Your </Text>
-            Messages<Text style={{ color: COLORS.accent }}>.</Text>
-          </Text>
-        </View>
-
         {/* ── SEARCH ── */}
         <View style={st.searchRow}>
           <View style={st.searchBox}>

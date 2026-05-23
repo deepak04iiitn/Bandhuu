@@ -1,8 +1,10 @@
 import apiClient from "../api/apiClient";
 
-export const fetchNotifications = async () => {
+export const fetchNotifications = async (type) => {
   try {
-    const response = await apiClient.get("/notifications");
+    const params = {};
+    if (type && type !== "all") params.type = type;
+    const response = await apiClient.get("/notifications", { params });
     return {
       success: true,
       notifications: response.data?.notifications || [],

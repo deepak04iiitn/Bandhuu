@@ -99,10 +99,12 @@ export const getUnreadNotificationsCount = async () => {
   }
 };
 
-export const getMyConnections = async () => {
+export const getMyConnections = async (q) => {
   try {
     const headers = await getAuthHeaders();
-    const response = await axios.get(`${API_BASE_URL}/users/me/connections`, { headers });
+    const params = {};
+    if (q?.trim()) params.q = q.trim();
+    const response = await axios.get(`${API_BASE_URL}/users/me/connections`, { headers, params });
     return { success: true, ...response.data };
   } catch (error) {
     return {

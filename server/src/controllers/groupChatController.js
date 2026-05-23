@@ -207,19 +207,22 @@ export const getGroupChatSummaries = async (req, res) => {
     }
 
     const summaries = {};
-    for (const r of results) {
-      const key = r._id.toString();
+    for (const meetup of meetups) {
+      const mid = meetup._id;
+      const key = mid.toString();
+      const result = results.find(r => r._id.toString() === key);
+      
       summaries[key] = {
-        meetupId: r._id,
-        lastMessage: {
-          _id: r.lastMessage._id,
-          ciphertext: r.lastMessage.ciphertext,
-          iv: r.lastMessage.iv,
-          messageType: r.lastMessage.messageType,
-          sender: r.lastMessage.sender,
-          createdAt: r.lastMessage.createdAt,
-        },
-        totalCount: r.totalCount,
+        meetupId: mid,
+        lastMessage: result?.lastMessage ? {
+          _id: result.lastMessage._id,
+          ciphertext: result.lastMessage.ciphertext,
+          iv: result.lastMessage.iv,
+          messageType: result.lastMessage.messageType,
+          sender: result.lastMessage.sender,
+          createdAt: result.lastMessage.createdAt,
+        } : null,
+        totalCount: result?.totalCount || 0,
         unreadCount: unreadMap[key] || 0,
       };
     }

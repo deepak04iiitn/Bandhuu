@@ -6,8 +6,15 @@ import User from '../models/User.js';
 // @access  Private
 export const getMyNotifications = async (req, res) => {
   try {
+    const { type } = req.query;
+    const notifFilter = { recipient: req.user._id };
+    if (type) {
+      const types = type.split(',').map((t) => t.trim()).filter(Boolean);
+      if (types.length > 0) notifFilter.type = { $in: types };
+    }
+
     const [notifications, user] = await Promise.all([
-      Notification.find({ recipient: req.user._id })
+      Notification.find(notifFilter)
         .sort({ createdAt: -1 })
         .limit(100)
         .populate('actor', '_id fullName username profileImageUri city'),

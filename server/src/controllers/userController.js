@@ -244,11 +244,24 @@ export const getConnectionRequests = async (req, res) => {
 // @access  Private
 export const getMyConnections = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).populate({
+    const { q } = req.query;
+    const populateOptions = {
       path: 'connections',
       select: '_id fullName username profileImageUri city state hometownCity hometownState occupationType isOnline lastSeenAt',
-    });
+    };
+    if (q?.trim()) {
+      const regex = new RegExp(q.trim(), 'i');
+      populateOptions.match = {
+        $or: [
+          { fullName: regex },
+          { username: regex },
+          { hometownCity: regex },
+          { city: regex },
+        ],
+      };
+    }
 
+    const user = await User.findById(req.user._id).populate(populateOptions);
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     return res.json({

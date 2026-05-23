@@ -5,6 +5,7 @@ import {
   markConversationRead,
   sendEncryptedMessage,
   clearChatForUser,
+  deleteConversationForUser,
   viewOneTimeImage,
 } from '../services/chatService.js';
 import { getIO, mapSocketMessage } from '../socket/socketServer.js';
@@ -152,6 +153,19 @@ export const clearChat = async (req, res) => {
     res.json({ message: 'Chat cleared' });
   } catch (error) {
     withError(res, error, 'Failed to clear chat');
+  }
+};
+
+export const deleteConversation = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    await deleteConversationForUser({
+      userId: req.user._id,
+      targetUserId: userId,
+    });
+    res.json({ message: 'Conversation deleted' });
+  } catch (error) {
+    withError(res, error, 'Failed to delete conversation');
   }
 };
 
