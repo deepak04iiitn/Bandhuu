@@ -1,118 +1,138 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
+import { View, Text, StyleSheet, Image, Pressable, Platform } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 
 const C = {
-  ink: "#0a0a0a",
-  muted: "#888888",
-  border: "#e0dbd4",
-  divider: "#ece7e0",
-  card: "#ffffff",
-  paper: "#f5f2ed",
-  blue: "#004ac6",
-  bluePale: "#eef2ff",
-  goldPale: "#fff8e6",
+  ink:        "#1C1410",
+  inkMid:     "#5C4F47",
+  inkMuted:   "#9C8D84",
+  border:     "#E8E0D8",
+  divider:    "#F0EAE3",
+  surface:    "#FEFCFA",
+  terra:      "#C84B0C",
+  terraLight: "#FDF0EA",
+  green:      "#1A6B4A",
+  greenLight: "#E8F5EE",
 };
 
-const AVATAR_PALETTE = [
-  { bg: '#eef2ff', text: '#004ac6' },
-  { bg: '#fff8e6', text: '#8f6207' },
-  { bg: '#fef0ed', text: '#a13211' },
-  { bg: '#eef2ff', text: '#003996' },
-  { bg: '#fff4cf', text: '#8f6207' },
-  { bg: '#f3f6ff', text: '#004ac6' },
+const SERIF = Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' });
+
+const PALETTE = [
+  { bg: '#FDF0EA', text: '#C84B0C' },
+  { bg: '#EEF3FC', text: '#3B6CA8' },
+  { bg: '#E8F5F1', text: '#1A7A5E' },
+  { bg: '#FDEEF3', text: '#B83055' },
+  { bg: '#F3EEFE', text: '#7040B8' },
 ];
+const getAvatarPalette = (name) => PALETTE[(name?.charCodeAt(0) ?? 0) % PALETTE.length];
 
-function getAvatarStyle(name) {
-  const index = (name?.charCodeAt(0) ?? 0) % AVATAR_PALETTE.length;
-  return AVATAR_PALETTE[index];
-}
+export default function SearchResultItem({ user, onPress, onConnect, isLast, connectingId }) {
+  const pal         = getAvatarPalette(user.fullName);
+  const hometown    = user.hometownCity || user.hometown;
+  const currentCity = user.city || user.location?.split(',')[0]?.trim();
+  const status      = user.connectionStatus;
+  const isConnecting = connectingId === user._id;
 
-export default function SearchResultItem({ user, onPress, isLast }) {
-  const avatarStyle = getAvatarStyle(user.fullName);
+  let connectLabel = '+ Connect';
+  let connectStyle = s.connectPill;
+  let connectTxt   = s.connectPillTxt;
+
+  if (isConnecting) {
+    connectLabel = '···';
+  } else if (status === 'connected') {
+    connectLabel = 'Connected'; connectStyle = [s.connectPill, s.connectDone]; connectTxt = s.connectDoneTxt;
+  } else if (status === 'request_sent') {
+    connectLabel = 'Requested'; connectStyle = [s.connectPill, s.connectSent]; connectTxt = s.connectSentTxt;
+  } else if (status === 'request_received') {
+    connectLabel = 'Accept'; connectStyle = [s.connectPill, s.connectAccept]; connectTxt = s.connectAcceptTxt;
+  }
 
   return (
-    <TouchableOpacity
-      style={[styles.card, isLast && styles.noBorder]}
+    <Pressable
+      style={[s.row, !isLast && s.rowBorder]}
       onPress={() => onPress(user)}
-      activeOpacity={0.6}
+      activeOpacity={0.7}
     >
       {/* Avatar */}
-      <View style={[styles.avatar, { backgroundColor: avatarStyle.bg }]}>
-        {user.profileImageUri ? (
-          <Image source={{ uri: user.profileImageUri }} style={styles.avatarImage} />
-        ) : (
-          <Text style={[styles.avatarText, { color: avatarStyle.text }]}>
-            {user.fullName.charAt(0).toUpperCase()}
-          </Text>
-        )}
+      <View style={[s.avatar, { backgroundColor: pal.bg }]}>
+        {user.profileImageUri
+          ? <Image source={{ uri: user.profileImageUri }} style={s.avatarImg} />
+          : <Text style={[s.avatarInitial, { color: pal.text }]}>{(user.fullName || '?')[0].toUpperCase()}</Text>
+        }
       </View>
 
       {/* Info */}
-      <View style={styles.info}>
-        <Text style={styles.fullName} numberOfLines={1}>{user.fullName}</Text>
-        <Text style={styles.username} numberOfLines={1}>@{user.username}</Text>
+      <View style={s.info}>
+        <Text style={s.name} numberOfLines={1}>{user.fullName}</Text>
+        {(hometown || currentCity) ? (
+          <View style={s.journeyRow}>
+            {hometown ? (
+              <>
+                <View style={s.journeyDot} />
+                <Text style={s.journeyTxt} numberOfLines={1}>{hometown}</Text>
+              </>
+            ) : null}
+            {hometown && currentCity ? (
+              <MaterialIcons name="east" size={10} color={C.inkMuted} />
+            ) : null}
+            {currentCity ? (
+              <Text style={s.journeyCity} numberOfLines={1}>{currentCity}</Text>
+            ) : null}
+          </View>
+        ) : null}
       </View>
 
-      {/* Chevron */}
-      <MaterialIcons
-        name="chevron-right"
-        size={22}
-        color={C.muted}
-      />
-    </TouchableOpacity>
+      {/* Connect button */}
+      {onConnect && status !== 'self' && (
+        <Pressable
+          style={connectStyle}
+          onPress={(e) => { e.stopPropagation?.(); onConnect(user); }}
+          disabled={isConnecting || status === 'request_sent'}
+          hitSlop={8}
+        >
+          <Text style={connectTxt}>{connectLabel}</Text>
+        </Pressable>
+      )}
+    </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
+const s = StyleSheet.create({
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: C.divider,
-    gap: 14,
-    backgroundColor: C.card,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    gap: 12,
+    backgroundColor: C.surface,
   },
-  noBorder: {
-    borderBottomWidth: 0,
-  },
+  rowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.divider },
   avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: 44, height: 44, borderRadius: 22,
+    alignItems: 'center', justifyContent: 'center',
+    flexShrink: 0, overflow: 'hidden',
+  },
+  avatarImg:     { width: 44, height: 44, borderRadius: 22 },
+  avatarInitial: { fontSize: 18, fontWeight: '900' },
+  info: { flex: 1, gap: 3, minWidth: 0 },
+  name: {
+    fontFamily: SERIF,
+    fontSize: 14, fontWeight: '700', color: C.ink, letterSpacing: -0.2,
+  },
+  journeyRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'wrap' },
+  journeyDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: C.terra },
+  journeyTxt: { fontSize: 11, fontWeight: '600', color: C.terra },
+  journeyCity:{ fontSize: 11, fontWeight: '500', color: C.inkMuted },
+  connectPill: {
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderRadius: 20, borderWidth: 1.5, borderColor: C.terra,
     flexShrink: 0,
-    borderWidth: 1.5,
-    borderColor: C.border,
   },
-  avatarImage: {
-    width: 52,
-    height: 52,
-    borderRadius: 10,
-  },
-  avatarText: {
-    fontSize: 20,
-    fontWeight: '900',
-    letterSpacing: -0.5,
-  },
-  info: {
-    flex: 1,
-    gap: 2,
-    minWidth: 0,
-  },
-  fullName: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: C.ink,
-    letterSpacing: -0.4,
-  },
-  username: {
-    fontSize: 12,
-    color: C.muted,
-    fontWeight: '700',
-    letterSpacing: 0.2,
-  },
+  connectPillTxt: { fontSize: 11, fontWeight: '700', color: C.terra },
+  connectDone: { borderColor: C.border },
+  connectDoneTxt: { fontSize: 11, fontWeight: '600', color: C.inkMuted },
+  connectSent: { borderColor: C.green, backgroundColor: C.greenLight },
+  connectSentTxt: { fontSize: 11, fontWeight: '700', color: C.green },
+  connectAccept: { backgroundColor: C.terra, borderColor: C.terra },
+  connectAcceptTxt: { fontSize: 11, fontWeight: '700', color: '#fff' },
 });

@@ -1,189 +1,132 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
-  Alert,
-  View,
-  Text,
-  StyleSheet,
-  ActivityIndicator,
-  ScrollView,
-  Image,
-  Pressable,
-  StatusBar,
+  Alert, View, Text, StyleSheet, ActivityIndicator,
+  ScrollView, Image, Pressable, StatusBar, Platform, Animated,
 } from "react-native";
 import MapView, { Marker, Polyline, PROVIDER_DEFAULT } from "react-native-maps";
 import { MaterialIcons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import {
-  getUserProfile,
-  removeConnection,
-  respondToConnectionRequest,
-  sendConnectionRequest,
-  blockUser,
-  reportUser,
+  getUserProfile, getUserPosts,
+  removeConnection, respondToConnectionRequest, sendConnectionRequest,
+  blockUser, reportUser,
 } from "../services/users/userService";
 import { getUnreadNotificationsCount } from "../services/notifications/notificationService";
 import AppTopHeader from "../components/AppTopHeader";
 import { useSnackbar } from "../store/SnackbarContext";
 import { useAuth } from "../store/AuthContext";
-import ProfileCompletionGateModal, {
-  isProfileCompleteForConnections,
-} from "../components/common/ProfileCompletionGateModal";
+import ProfileCompletionGateModal, { isProfileCompleteForConnections } from "../components/common/ProfileCompletionGateModal";
 import UserActionsMenu from "../components/common/UserActionsMenu";
 import ReportSheet from "../components/common/ReportSheet";
 
-// ─── Avatar palette (preserved) ──────────────────────────────────────────────
-const AVATAR_PALETTE = [
-  { bg: '#EDE9FE', text: '#6D28D9' },
-  { bg: '#DBEAFE', text: '#1D4ED8' },
-  { bg: '#D1FAE5', text: '#065F46' },
-  { bg: '#FEE2E2', text: '#B91C1C' },
-  { bg: '#FEF3C7', text: '#92400E' },
-  { bg: '#FCE7F3', text: '#9D174D' },
-  { bg: '#E0F2FE', text: '#0369A1' },
-  { bg: '#F0FDF4', text: '#166534' },
-];
-function getAvatarColor(name) {
-  const index = (name?.charCodeAt(0) ?? 0) % AVATAR_PALETTE.length;
-  return AVATAR_PALETTE[index];
-}
-
-const GENDER_ICON  = { Male: 'male', Female: 'female', Other: 'transgender' };
-const GENDER_COLOR = { Male: '#3B82F6', Female: '#EC4899', Other: '#8B5CF6' };
-
-// ─── Design tokens ────────────────────────────────────────────────────────────
+// ─── TOKENS ───────────────────────────────────────────────────────────────────
 const C = {
-  primary:           "#004ac6",
-  onPrimary:         "#ffffff",
-  secondary:         "#e8380d",
-  secondaryFixed:    "#fff8e6",
-  onSecondaryFixed:  "#8f6207",
-  surfaceLowest:     "#ffffff",
-  surfaceLow:        "#f5f2ed",
-  surfaceHigh:       "#ede9e2",
-  onSurface:         "#0a0a0a",
-  onSurfaceVariant:  "#888888",
-  outline:           "#e0dbd4",
+  bg:          "#F5F0EB",
+  surface:     "#FEFCFA",
+  inputBg:     "#F2EDE6",
+  terra:       "#C84B0C",
+  terraLight:  "#FDF0EA",
+  green:       "#1A6B4A",
+  greenLight:  "#E8F5EE",
+  ink:         "#1C1410",
+  inkMid:      "#5C4F47",
+  inkMuted:    "#9C8D84",
+  border:      "#E8E0D8",
+  divider:     "#F0EAE3",
+  white:       "#FFFFFF",
+  catGeneral:  "#D4820A", catGeneralBg:  "#FEF7E8",
+  catHousing:  "#3B6CA8", catHousingBg:  "#EEF3FC",
+  catTravel:   "#1A7A5E", catTravelBg:   "#E8F5F1",
+  catHangouts: "#B83055", catHangoutsBg: "#FDEEF3",
+  catHelp:     "#7040B8", catHelpBg:     "#F3EEFE",
 };
 
-const AVATAR_SIZE = 96;
-const CARD_SHADOW = {
-  shadowColor: "#0a0a0a",
-  shadowOffset: { width: 3, height: 6 },
-  shadowOpacity: 0.08,
-  shadowRadius: 12,
-  elevation: 5,
+const SERIF = Platform.select({ ios: "Georgia", android: "serif", default: "serif" });
+
+const PALETTE = [
+  { bg: "#FDF0EA", text: "#C84B0C" },
+  { bg: "#EEF3FC", text: "#3B6CA8" },
+  { bg: "#E8F5F1", text: "#1A7A5E" },
+  { bg: "#FDEEF3", text: "#B83055" },
+  { bg: "#F3EEFE", text: "#7040B8" },
+  { bg: "#E8F5EE", text: "#1A6B4A" },
+];
+const getAvatarPalette = (name) => PALETTE[(name?.charCodeAt(0) ?? 0) % PALETTE.length];
+
+const GENDER_ICON  = { Male: "male",        Female: "female",  Other: "transgender" };
+const GENDER_COLOR = { Male: "#3B82F6",     Female: "#EC4899", Other: "#8B5CF6"     };
+const GENDER_BG    = { Male: "#EFF6FF",     Female: "#FDF2F8", Other: "#F5F3FF"     };
+
+const CAT_META = {
+  "general":            { color: C.catGeneral,  bg: C.catGeneralBg  },
+  "flatmate":           { color: C.catHousing,  bg: C.catHousingBg  },
+  "housing":            { color: C.catHousing,  bg: C.catHousingBg  },
+  "travelmate":         { color: C.catTravel,   bg: C.catTravelBg   },
+  "trip":               { color: C.catTravel,   bg: C.catTravelBg   },
+  "hangouts":           { color: C.catHangouts, bg: C.catHangoutsBg },
+  "help":               { color: C.catHelp,     bg: C.catHelpBg     },
+  "questions":          { color: C.catHelp,     bg: C.catHelpBg     },
+};
+const getCatMeta = (cat) => {
+  if (!cat) return { color: C.catGeneral, bg: C.catGeneralBg };
+  const key = Object.keys(CAT_META).find(k => cat.toLowerCase().includes(k));
+  return key ? CAT_META[key] : { color: C.catGeneral, bg: C.catGeneralBg };
 };
 
-// ─── Small reusable sub-components ───────────────────────────────────────────
+const fmtRelTime = (d) => {
+  if (!d) return "";
+  const m = Math.floor((Date.now() - new Date(d)) / 60000);
+  const h = Math.floor(m / 60); const day = Math.floor(h / 24);
+  if (m < 60) return `${Math.max(1, m)}m ago`;
+  if (h < 24) return `${h}h ago`;
+  return `${day}d ago`;
+};
 
-function StatItem({ value, label }) {
-  return (
-    <View style={s.statItem}>
-      <Text style={s.statLabel}>{label}</Text>
-      <Text style={s.statValue}>{value}</Text>
-    </View>
-  );
-}
-
-function DetailRow({ icon, label, value, last }) {
-  return (
-    <View style={[s.detailRow, !last && s.detailRowBorder]}>
-      <View style={s.detailIconWrap}>
-        <MaterialIcons name={icon} size={16} color={C.primary} />
-      </View>
-      <View style={s.detailBody}>
-        <Text style={s.detailLabel}>{label}</Text>
-        <Text style={s.detailValue}>{value || "Not available"}</Text>
-      </View>
-    </View>
-  );
-}
-
-// ─── Nominatim geocoding helper ──────────────────────────────────────────────
+// ─── Geocoding helpers (unchanged) ────────────────────────────────────────────
 async function geocodePlace(city, state) {
-  const q = [city, state].filter(Boolean).join(', ');
+  const q = [city, state].filter(Boolean).join(", ");
   if (!q) return null;
   try {
     const res = await fetch(
       `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1`,
-      { headers: { 'User-Agent': 'Bandhuu/1.0' } }
+      { headers: { "User-Agent": "Bandhuu/1.0" } }
     );
     const data = await res.json();
-    if (data.length > 0) {
-      return { latitude: parseFloat(data[0].lat), longitude: parseFloat(data[0].lon) };
-    }
+    if (data.length > 0) return { latitude: parseFloat(data[0].lat), longitude: parseFloat(data[0].lon) };
   } catch (_) {}
   return null;
 }
 
-// ─── Auto-fit region for two coordinates ─────────────────────────────────────
 function getRegionForTwo(a, b, padding = 1.6) {
   const minLat = Math.min(a.latitude, b.latitude);
   const maxLat = Math.max(a.latitude, b.latitude);
   const minLon = Math.min(a.longitude, b.longitude);
   const maxLon = Math.max(a.longitude, b.longitude);
-  const latDelta = Math.max((maxLat - minLat) * padding, 0.25);
-  const lonDelta = Math.max((maxLon - minLon) * padding, 0.25);
   return {
     latitude: (minLat + maxLat) / 2,
     longitude: (minLon + maxLon) / 2,
-    latitudeDelta: latDelta,
-    longitudeDelta: lonDelta,
+    latitudeDelta: Math.max((maxLat - minLat) * padding, 0.25),
+    longitudeDelta: Math.max((maxLon - minLon) * padding, 0.25),
   };
 }
 
-// ─── Journey Map ──────────────────────────────────────────────────────────────
-
-function JourneyBadge({ from, to }) {
-  return (
-    <View style={s.journeyBadgeContainer}>
-      <BlurView intensity={80} tint="light" style={s.journeyBadgePill}>
-        <View style={s.badgeCity}>
-          <MaterialIcons name="home" size={14} color={C.primary} />
-          <Text style={s.badgeCityText} numberOfLines={1}>{from}</Text>
-        </View>
-        <MaterialIcons name="east" size={18} color={C.primary} style={{ marginHorizontal: 8 }} />
-        <View style={s.badgeCity}>
-          <MaterialIcons name="location-city" size={14} color={C.primary} />
-          <Text style={s.badgeCityText} numberOfLines={1}>{to}</Text>
-        </View>
-      </BlurView>
-    </View>
-  );
-}
-
-function JourneyFallback({ homeLabel, currentLabel }) {
-  // Use a beautiful OSM static map of a fallback region (e.g., India center)
-  const fallbackMapUrl = `https://staticmap.openstreetmap.de/staticmap.php?center=22.9734,78.6569&zoom=4&size=600x400&maptype=mapnik`;
-
-  return (
-    <View style={StyleSheet.absoluteFill}>
-      <Image source={{ uri: fallbackMapUrl }} style={s.fallbackImage} />
-      <View style={s.fallbackOverlay} />
-      <JourneyBadge from={homeLabel?.split(',')[0] || "Hometown"} to={currentLabel?.split(',')[0] || "Current City"} />
-    </View>
-  );
-}
-
+// ─── Journey Map (terracotta polyline, same logic) ────────────────────────────
 function JourneyMap({ hometownCity, hometownState, currentCity, currentState }) {
   const [homeCoords, setHomeCoords]       = useState(null);
   const [currentCoords, setCurrentCoords] = useState(null);
   const [loading, setLoading]             = useState(true);
 
-  const homeLabel    = [hometownCity, hometownState].filter(Boolean).join(', ');
-  const currentLabel = [currentCity,  currentState ].filter(Boolean).join(', ');
+  const homeLabel    = [hometownCity, hometownState].filter(Boolean).join(", ");
+  const currentLabel = [currentCity, currentState].filter(Boolean).join(", ");
 
   useEffect(() => {
     Promise.all([
       geocodePlace(hometownCity, hometownState),
       geocodePlace(currentCity,  currentState),
     ]).then(([home, current]) => {
-      setHomeCoords(home);
-      setCurrentCoords(current);
-      setLoading(false);
+      setHomeCoords(home); setCurrentCoords(current); setLoading(false);
     });
   }, [hometownCity, hometownState, currentCity, currentState]);
 
@@ -197,115 +140,194 @@ function JourneyMap({ hometownCity, hometownState, currentCity, currentState }) 
   return (
     <View style={s.mapCard}>
       {loading ? (
-        <View style={s.mapLoading}>
-          <ActivityIndicator size="large" color={C.primary} />
-        </View>
+        <View style={s.mapLoading}><ActivityIndicator color={C.terra} /></View>
       ) : region ? (
         <>
           <MapView
             style={StyleSheet.absoluteFill}
             provider={PROVIDER_DEFAULT}
             region={region}
-            scrollEnabled={false}
-            zoomEnabled={false}
-            pitchEnabled={false}
-            rotateEnabled={false}
+            scrollEnabled={false} zoomEnabled={false} pitchEnabled={false} rotateEnabled={false}
           >
             {bothExist && (
               <Polyline
                 coordinates={[homeCoords, currentCoords]}
                 strokeWidth={3}
-                strokeColor={C.primary}
+                strokeColor={C.terra}
                 lineDashPattern={[8, 6]}
                 geodesic
               />
             )}
-            {homeCoords && (
-              <Marker coordinate={homeCoords} pinColor="#004AC6" title="Hometown" description={homeLabel} />
-            )}
-            {currentCoords && (
-              <Marker coordinate={currentCoords} pinColor="#16A34A" title="Current City" description={currentLabel} />
-            )}
+            {homeCoords && <Marker coordinate={homeCoords} pinColor="#C84B0C" title="Hometown" description={homeLabel} />}
+            {currentCoords && <Marker coordinate={currentCoords} pinColor="#1A6B4A" title="Current City" description={currentLabel} />}
           </MapView>
-          
           <View style={s.mapBar}>
             <View style={s.mapBarCity}>
-              <View style={[s.mapBarDot, { backgroundColor: '#004AC6' }]} />
-              <Text style={s.mapBarCityText} numberOfLines={1}>{homeLabel?.split(',')[0]}</Text>
+              <View style={[s.mapBarDot, { backgroundColor: C.terra }]} />
+              <Text style={s.mapBarCityTxt} numberOfLines={1}>{homeLabel?.split(",")[0]}</Text>
             </View>
-            {bothExist && (
-              <MaterialIcons name="east" size={14} color={C.outline} style={{ marginHorizontal: 6 }} />
-            )}
+            {bothExist && <MaterialIcons name="east" size={13} color={C.inkMuted} />}
             {currentLabel ? (
               <View style={s.mapBarCity}>
-                <View style={[s.mapBarDot, { backgroundColor: '#16A34A' }]} />
-                <Text style={s.mapBarCityText} numberOfLines={1}>{currentLabel?.split(',')[0]}</Text>
+                <View style={[s.mapBarDot, { backgroundColor: C.green }]} />
+                <Text style={s.mapBarCityTxt} numberOfLines={1}>{currentLabel?.split(",")[0]}</Text>
               </View>
             ) : null}
           </View>
         </>
       ) : (
-        <JourneyFallback homeLabel={homeLabel} currentLabel={currentLabel} />
+        <View style={s.mapLoading}>
+          <Text style={s.mapFallbackTxt}>{homeLabel || "Hometown"} → {currentLabel || "Current City"}</Text>
+        </View>
       )}
     </View>
   );
 }
 
+// ─── Skeleton loading ─────────────────────────────────────────────────────────
+function ProfileSkeleton() {
+  const anim = useRef(new Animated.Value(0.45)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1,    duration: 800, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0.45, duration: 800, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [anim]);
+  const Skel = ({ style }) => <Animated.View style={[style, { opacity: anim, backgroundColor: "#EDE5DB" }]} />;
+  return (
+    <View style={[s.headerZone, { gap: 16, paddingBottom: 24 }]}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+        <Skel style={{ width: 84, height: 84, borderRadius: 42 }} />
+        <View style={{ flex: 1, gap: 10 }}>
+          <Skel style={{ height: 18, width: "60%", borderRadius: 9 }} />
+          <Skel style={{ height: 13, width: "40%", borderRadius: 7 }} />
+          <Skel style={{ height: 13, width: "70%", borderRadius: 7 }} />
+        </View>
+      </View>
+      <View style={{ flexDirection: "row", gap: 10 }}>
+        <Skel style={{ flex: 1, height: 42, borderRadius: 21 }} />
+        <Skel style={{ flex: 1, height: 42, borderRadius: 21 }} />
+      </View>
+      <Skel style={{ height: 13, width: "80%", borderRadius: 7 }} />
+      <Skel style={{ height: 13, width: "65%", borderRadius: 7 }} />
+    </View>
+  );
+}
+
+// ─── Mini post card (for recent posts strip) ──────────────────────────────────
+function MiniPostCard({ post, onPress }) {
+  const cat = getCatMeta(post.category);
+  return (
+    <Pressable style={s.miniCard} onPress={() => onPress(post)} activeOpacity={0.8}>
+      <View style={[s.miniCatBar, { backgroundColor: cat.color }]} />
+      <View style={s.miniCardBody}>
+        <Text style={s.miniCardTitle} numberOfLines={3}>{post.title}</Text>
+        <Text style={s.miniCardTime}>{fmtRelTime(post.createdAt)}</Text>
+      </View>
+    </Pressable>
+  );
+}
+
 // ─── Main screen ──────────────────────────────────────────────────────────────
 export default function UserProfileScreen({ route, navigation }) {
-  const insets = useSafeAreaInsets();
+  const insets           = useSafeAreaInsets();
   const { showSnackbar } = useSnackbar();
-  const { user } = useAuth();
-  const { username } = route.params;
-  const [profile, setProfile]     = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isConnectBusy, setIsConnectBusy] = useState(false);
-  const [unreadNotifications, setUnreadNotifications] = useState(0);
-  const [showProfileGateModal, setShowProfileGateModal] = useState(false);
+  const { user }         = useAuth();
+  const { username }     = route.params;
+
+  const [profile, setProfile]       = useState(null);
+  const [isLoading, setIsLoading]   = useState(true);
+  const [connectBusy, setConnectBusy] = useState(false);
+  const [unread, setUnread]         = useState(0);
+  const [profileGate, setProfileGate] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [reportVisible, setReportVisible] = useState(false);
   const [reportBusy, setReportBusy] = useState(false);
+  const [userPosts, setUserPosts]   = useState([]);
+  const [postsLoading, setPostsLoading] = useState(false);
 
   useEffect(() => {
-    const fetchProfile = async () => {
+    const load = async () => {
       setIsLoading(true);
       const data = await getUserProfile(username);
       setProfile(data);
       setIsLoading(false);
+      if (data?._id) {
+        setPostsLoading(true);
+        const pr = await getUserPosts(data._id, 8);
+        if (pr.success) setUserPosts(pr.posts);
+        setPostsLoading(false);
+      }
     };
-    fetchProfile();
+    load();
   }, [username]);
 
   useFocusEffect(
     React.useCallback(() => {
       let mounted = true;
-      const loadUnread = async () => {
-        const result = await getUnreadNotificationsCount();
-        if (mounted && result.success) {
-          setUnreadNotifications(result.count || 0);
-        }
-      };
-      loadUnread();
-      return () => {
-        mounted = false;
-      };
+      getUnreadNotificationsCount().then(r => {
+        if (mounted && r.success) setUnread(r.count || 0);
+      });
+      return () => { mounted = false; };
     }, [])
   );
 
-  const handleBack = () => {
-    if (navigation.canGoBack()) navigation.goBack();
-    else navigation.navigate('Search');
+  const handleBack = () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate("Search");
+
+  // ── connect ──────────────────────────────────────────────────────────────
+  const onConnectPress = async () => {
+    if (!profile?._id || connectBusy) return;
+    const isNew = !["connected","request_received","request_sent"].includes(profile.connectionStatus);
+    if (isNew && !isProfileCompleteForConnections(user)) { setProfileGate(true); return; }
+
+    setConnectBusy(true);
+    const result =
+      profile.connectionStatus === "connected"        ? await removeConnection(profile._id)
+      : profile.connectionStatus === "request_received" ? await respondToConnectionRequest(profile._id, "accept")
+      : profile.connectionStatus === "request_sent"     ? { success: false, message: "Request already sent." }
+      : await sendConnectionRequest(profile._id);
+    setConnectBusy(false);
+
+    if (!result.success) { showSnackbar(result.message || "Unable to perform action", "error"); return; }
+    const refreshed = await getUserProfile(username);
+    if (refreshed) setProfile(refreshed);
+    showSnackbar(
+      profile.connectionStatus === "connected"        ? "Connection removed."
+      : profile.connectionStatus === "request_received" ? "Connection accepted."
+      : "Connection request sent.", "success"
+    );
   };
 
+  // ── block / report ───────────────────────────────────────────────────────
+  const handleBlock = () =>
+    Alert.alert("Block User", `Block ${profile.fullName}? They won't be able to find or message you.`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Block", style: "destructive", onPress: async () => {
+        const res = await blockUser(profile._id);
+        if (res.success) { showSnackbar("User blocked.", "success"); navigation.goBack(); }
+        else showSnackbar(res.message || "Failed to block user", "error");
+      }},
+    ]);
+
+  const handleReport = async (reason, details) => {
+    setReportBusy(true);
+    const res = await reportUser(profile._id, reason, details);
+    setReportBusy(false);
+    if (res.success) { setReportVisible(false); showSnackbar("Report submitted.", "success"); }
+    else showSnackbar(res.message || "Failed to submit report", "error");
+  };
+
+  // ── loading / error states ───────────────────────────────────────────────
   if (isLoading) {
     return (
       <View style={s.screen}>
         <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
-        <AppTopHeader onBackPress={handleBack} onNotificationPress={() => navigation.navigate('Notifications')} notificationCount={unreadNotifications} />
-        <View style={s.center}>
-          <ActivityIndicator size="large" color={C.primary} />
-          <Text style={s.loadingText}>Loading profile…</Text>
-        </View>
+        <AppTopHeader onBackPress={handleBack} onNotificationPress={() => navigation.navigate("Notifications")} notificationCount={unread} absolute />
+        <ScrollView contentContainerStyle={[s.scroll, { paddingTop: insets.top + 74 }]}>
+          <ProfileSkeleton />
+        </ScrollView>
       </View>
     );
   }
@@ -314,617 +336,426 @@ export default function UserProfileScreen({ route, navigation }) {
     return (
       <View style={s.screen}>
         <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
-        <AppTopHeader onBackPress={handleBack} onNotificationPress={() => navigation.navigate('Notifications')} notificationCount={unreadNotifications} />
+        <AppTopHeader onBackPress={handleBack} onNotificationPress={() => navigation.navigate("Notifications")} notificationCount={unread} absolute />
         <View style={s.center}>
-          <MaterialIcons name="error-outline" size={56} color={C.outline} />
-          <Text style={s.errorText}>User not found</Text>
+          <Text style={s.errorEmoji}>😕</Text>
+          <Text style={s.errorHead}>Profile not available</Text>
+          <Text style={s.errorSub}>They may have deleted their account or blocked you.</Text>
+          <Pressable style={s.errorBack} onPress={handleBack}>
+            <Text style={s.errorBackTxt}>← Go back</Text>
+          </Pressable>
         </View>
       </View>
     );
   }
 
-  const avatarColor = getAvatarColor(profile.fullName);
-  const genderIcon  = GENDER_ICON[profile.gender];
-  const genderColor = GENDER_COLOR[profile.gender] ?? C.outline;
+  // ── derived ───────────────────────────────────────────────────────────────
+  const pal           = getAvatarPalette(profile.fullName);
+  const hometownLabel = [profile.hometownCity, profile.hometownState].filter(Boolean).join(", ");
+  const currentLabel  = [profile.city, profile.state].filter(Boolean).join(", ");
+  const hometown      = profile.hometownCity || hometownLabel;
+  const currentCity   = profile.city || profile.location?.split(",")[0]?.trim() || "";
+  const isSelf        = user?._id === profile?._id;
 
-  const occupation = profile.occupationType === 'student' ? 'Student' : 'Working Professional';
-  const occupationDetail =
-    profile.studyOrPost && profile.organization
-      ? `${profile.studyOrPost} at ${profile.organization}`
-      : profile.studyOrPost || profile.organization || occupation;
+  const postsCount   = profile.postsCount   ?? 0;
+  const meetupsCount = profile.meetupsCount  ?? 0;
+  const yaariCount   = profile.yaariCount ?? profile.connectionsCount ?? 0;
 
-  const hometownLabel = [profile.hometownCity, profile.hometownState].filter(Boolean).join(', ');
-  const currentLabel  = [profile.city, profile.state].filter(Boolean).join(', ');
-  const hasHometown    = !!hometownLabel;
-  const hasCurrentCity = !!currentLabel;
-  const statsPosts =
-    profile.postsCount ?? profile.posts ?? profile.postCount ?? 0;
-  const statsYaaris =
-    profile.yaariCount ??
-    profile.connectionsCount ??
-    profile.connectionCount ??
-    profile.connections?.length ??
-    0;
-  const connectLabel =
-    profile.connectionStatus === "connected"
-      ? "Connected"
-      : profile.connectionStatus === "request_sent"
-      ? "Requested"
-      : profile.connectionStatus === "request_received"
-      ? "Accept"
-      : "Connect";
+  const occupationDetail = profile.studyOrPost && profile.organization
+    ? `${profile.studyOrPost} at ${profile.organization}`
+    : profile.studyOrPost || profile.organization || (profile.occupationType === "student" ? "Student" : "Working Professional");
 
-  const onConnectPress = async () => {
-    if (!profile?._id || isConnectBusy) return;
-    const isSendingNewRequest =
-      profile.connectionStatus !== "connected" &&
-      profile.connectionStatus !== "request_received" &&
-      profile.connectionStatus !== "request_sent";
+  const connectLabel = connectBusy ? "···"
+    : profile.connectionStatus === "connected"        ? "Connected ✓"
+    : profile.connectionStatus === "request_sent"     ? "Requested"
+    : profile.connectionStatus === "request_received" ? "Accept"
+    : "Connect";
 
-    if (isSendingNewRequest && !isProfileCompleteForConnections(user)) {
-      setShowProfileGateModal(true);
-      return;
-    }
+  const connectStyle = profile.connectionStatus === "connected" ? s.connectBtnDone
+    : profile.connectionStatus === "request_sent" ? s.connectBtnSent : s.connectBtn;
 
-    setIsConnectBusy(true);
-    const result =
-      profile.connectionStatus === "connected"
-        ? await removeConnection(profile._id)
-        : profile.connectionStatus === "request_received"
-        ? await respondToConnectionRequest(profile._id, "accept")
-        : profile.connectionStatus === "request_sent"
-        ? { success: false, message: "Request already sent and pending response." }
-        : await sendConnectionRequest(profile._id);
-    setIsConnectBusy(false);
+  // Interest tags from posts
+  const interests = [...new Set(userPosts.map(p => p.category).filter(Boolean))].slice(0, 5);
 
-    if (!result.success) {
-      showSnackbar(result.message || "Unable to perform this action", "error");
-      return;
-    }
-
-    const refreshed = await getUserProfile(username);
-    if (refreshed) setProfile(refreshed);
-    showSnackbar(
-      profile.connectionStatus === "connected"
-        ? "Connection removed."
-        : profile.connectionStatus === "request_received"
-        ? "Connection request accepted."
-        : "Connection request sent.",
-      "success"
-    );
-  };
-
-  const handleBlock = () => {
-    Alert.alert(
-      "Block User",
-      `Are you sure you want to block ${profile.fullName}? They won't be able to find or message you, and your connection will be removed.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Block",
-          style: "destructive",
-          onPress: async () => {
-            const res = await blockUser(profile._id);
-            if (res.success) {
-              showSnackbar("User blocked.", "success");
-              navigation.goBack();
-            } else {
-              showSnackbar(res.message || "Failed to block user", "error");
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const handleReport = async (reason, details) => {
-    setReportBusy(true);
-    const res = await reportUser(profile._id, reason, details);
-    setReportBusy(false);
-    if (res.success) {
-      setReportVisible(false);
-      showSnackbar("Report submitted. Our team will review it.", "success");
-    } else {
-      showSnackbar(res.message || "Failed to submit report", "error");
-    }
-  };
-
-  const isSelf = user?._id === profile?._id;
-
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <View style={s.screen}>
       <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
-      <AppTopHeader
-        onBackPress={handleBack}
-        onNotificationPress={() => navigation.navigate('Notifications')}
-        notificationCount={unreadNotifications}
-        absolute
-      />
+      <AppTopHeader onBackPress={handleBack} onNotificationPress={() => navigation.navigate("Notifications")} notificationCount={unread} absolute />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[s.scroll, { paddingTop: insets.top + 74 }]}
       >
-        <LinearGradient
-          colors={["#fdfcf9", "#f5f2ed"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={s.heroCard}
-        >
-          <View style={s.heroTop}>
-            <View style={s.memberPill}>
-              <View style={s.memberDot} />
-              <Text style={s.memberText}>Bandhuu Member</Text>
+        {/* ── Header zone ── */}
+        <View style={s.headerZone}>
+          <View style={s.headerTopRow}>
+            {/* Avatar */}
+            <View style={s.avatarRing}>
+              {profile.profileImageUri
+                ? <Image source={{ uri: profile.profileImageUri }} style={s.avatarImg} />
+                : <View style={[s.avatarFallback, { backgroundColor: pal.bg }]}>
+                    <Text style={[s.avatarInitial, { color: pal.text }]}>{profile.fullName[0].toUpperCase()}</Text>
+                  </View>
+              }
             </View>
+
+            {/* Name + journey */}
+            <View style={{ flex: 1 }}>
+              <Text style={s.profileName}>{profile.fullName}</Text>
+              <Text style={s.profileHandle}>@{profile.username}</Text>
+              {(hometown || currentCity) ? (
+                <View style={s.journeyRow}>
+                  {hometown ? <><View style={s.journeyDot} /><Text style={s.journeyFrom}>{hometown}</Text></> : null}
+                  {hometown && currentCity ? <MaterialIcons name="east" size={12} color={C.inkMuted} /> : null}
+                  {currentCity ? <Text style={s.journeyTo}>{currentCity}</Text> : null}
+                </View>
+              ) : null}
+            </View>
+
+            {/* More button */}
             {!isSelf && (
-              <Pressable
-                onPress={() => setMenuVisible(true)}
-                style={s.moreBtn}
-                hitSlop={8}
-              >
-                <MaterialIcons name="more-vert" size={20} color={C.onSurfaceVariant} />
+              <Pressable style={s.moreBtn} onPress={() => setMenuVisible(true)} hitSlop={8}>
+                <MaterialIcons name="more-vert" size={20} color={C.inkMuted} />
               </Pressable>
             )}
           </View>
 
-          <View style={s.profileRow}>
-            <View style={s.avatarWrap}>
-              {profile.profileImageUri ? (
-                <Image source={{ uri: profile.profileImageUri }} style={s.avatarImg} />
-              ) : (
-                <View style={[s.avatarFallback, { backgroundColor: avatarColor.bg }]}>
-                  <Text style={[s.avatarInitial, { color: avatarColor.text }]}>
-                    {profile.fullName.charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-              )}
-              {genderIcon && (
-                <View style={[s.genderBadge, { backgroundColor: genderColor }]}>
-                  <MaterialIcons name={genderIcon} size={11} color="#fff" />
-                </View>
-              )}
-            </View>
-
-            <View style={s.nameBlock}>
-              <Text style={s.heroName}>{profile.fullName}</Text>
-              <Text style={s.heroHandle}>@{profile.username}</Text>
-              <View style={s.nameAccent} />
-            </View>
-          </View>
-
-          <View style={s.heroActions}>
-            <Pressable
-              style={[
-                s.connectBtn,
-                profile.connectionStatus === "connected" && s.connectedBtn,
-              ]}
-              onPress={onConnectPress}
-            >
-              <Text style={s.connectBtnText}>
-                {isConnectBusy ? "..." : connectLabel}
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[
-                s.messageBtn,
-                profile.connectionStatus !== "connected" && s.messageBtnDisabled,
-              ]}
-              onPress={() => {
-                if (profile.connectionStatus !== "connected") {
-                  showSnackbar("You can only message your connections.", "info");
-                  return;
-                }
-                navigation.navigate("Messages", {
-                  openDmPeer: {
-                    _id: profile._id,
-                    fullName: profile.fullName,
-                    username: profile.username,
-                    profileImageUri: profile.profileImageUri || "",
-                    city: profile.city || "",
-                  },
-                });
-              }}
-            >
-              <MaterialIcons
-                name={profile.connectionStatus === "connected" ? "chat-bubble-outline" : "lock-outline"}
-                size={13}
-                color={profile.connectionStatus === "connected" ? C.onSurface : C.onSurfaceVariant}
-                style={{ marginRight: 4 }}
-              />
-              <Text
-                style={[
-                  s.messageBtnText,
-                  profile.connectionStatus !== "connected" && s.messageBtnTextDisabled,
-                ]}
+          {/* Action buttons */}
+          {!isSelf && (
+            <View style={s.actionsRow}>
+              <Pressable style={[s.connectBtn, connectStyle]} onPress={onConnectPress} disabled={connectBusy}>
+                <Text style={s.connectBtnTxt}>{connectLabel}</Text>
+              </Pressable>
+              <Pressable
+                style={[s.messageBtn, profile.connectionStatus !== "connected" && s.messageBtnDisabled]}
+                onPress={() => {
+                  if (profile.connectionStatus !== "connected") {
+                    showSnackbar("Connect first to send a message.", "info"); return;
+                  }
+                  navigation.navigate("Messages", {
+                    openDmPeer: { _id: profile._id, fullName: profile.fullName, username: profile.username, profileImageUri: profile.profileImageUri || "", city: profile.city || "" },
+                  });
+                }}
               >
-                Message
-              </Text>
-            </Pressable>
-          </View>
-
-          <View style={s.metaChips}>
-            <View style={s.metaChip}>
-              <MaterialIcons name="work" size={14} color={C.primary} />
-              <Text style={s.metaChipText}>{occupation}</Text>
-            </View>
-            {hasCurrentCity ? (
-              <View style={[s.metaChip, s.metaChipAlt]}>
-                <MaterialIcons name="location-on" size={14} color={C.onSecondaryFixed} />
-                <Text style={[s.metaChipText, { color: C.onSecondaryFixed }]} numberOfLines={1}>
-                  {currentLabel}
+                <MaterialIcons
+                  name={profile.connectionStatus === "connected" ? "chat-bubble-outline" : "lock-outline"}
+                  size={15} color={profile.connectionStatus === "connected" ? C.ink : C.inkMuted}
+                />
+                <Text style={[s.messageBtnTxt, profile.connectionStatus !== "connected" && { color: C.inkMuted }]}>
+                  Message
                 </Text>
-              </View>
-            ) : null}
-          </View>
-        </LinearGradient>
-
-        <View style={s.profileSection}>
-          {!!profile.bio && (
-            <View style={s.sectionCard}>
-              <Text style={s.bioLabel}>BIO</Text>
-              <Text style={s.bioText}>{profile.bio}</Text>
+              </Pressable>
             </View>
           )}
 
-          <View style={s.statsRow}>
-            <StatItem value={statsPosts} label="Posts" />
-            <StatItem value={statsYaaris} label="Yaaris" />
-          </View>
-
-          <View style={s.sectionCard}>
-            <View style={s.sectionHeader}>
-              <Text style={s.sectionTitle}>Profile Details</Text>
-            </View>
-            <DetailRow icon="work-outline" label="Occupation" value={occupationDetail} />
-            <DetailRow icon="person-outline" label="Gender" value={profile.gender || "Not specified"} />
-            <DetailRow icon="home" label="Hometown" value={hometownLabel || "Not set"} />
-            <DetailRow
-              icon="location-city"
-              label="Current Location"
-              value={currentLabel || "Not set"}
-              last
-            />
-          </View>
-
-          {(hasHometown || hasCurrentCity) && (
-            <View style={s.sectionCard}>
-              <View style={s.sectionHeader}>
-                <Text style={s.sectionTitle}>Journey Map</Text>
-                <Text style={s.sectionMeta}>From hometown to current city</Text>
-              </View>
-              <JourneyMap
-                hometownCity={profile.hometownCity}
-                hometownState={profile.hometownState}
-                currentCity={profile.city}
-                currentState={profile.state}
-              />
-            </View>
+          {/* Bio */}
+          {!!profile.bio && (
+            <Text style={s.bio}>{profile.bio}</Text>
           )}
         </View>
+
+        {/* ── Stats bar ── */}
+        <View style={s.statsBar}>
+          <View style={s.statCol}>
+            <Text style={s.statNum}>{postsCount}</Text>
+            <Text style={s.statLbl}>Posts</Text>
+          </View>
+          <View style={s.statDivider} />
+          <View style={s.statCol}>
+            <Text style={s.statNum}>{yaariCount}</Text>
+            <Text style={s.statLbl}>Yaaris</Text>
+          </View>
+          <View style={s.statDivider} />
+          <View style={s.statCol}>
+            <Text style={s.statNum}>{meetupsCount}</Text>
+            <Text style={s.statLbl}>Meetups</Text>
+          </View>
+        </View>
+
+        {/* ── About section ── */}
+        {(occupationDetail || profile.gender) && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>ABOUT</Text>
+            <View style={s.aboutCard}>
+              {occupationDetail ? (
+                <View style={[s.aboutRow, profile.gender && s.aboutRowBorder]}>
+                  <View style={[s.aboutIconWrap, { backgroundColor: C.catHousingBg }]}>
+                    <MaterialIcons
+                      name={profile.occupationType === "student" ? "school" : "work-outline"}
+                      size={18}
+                      color={C.catHousing}
+                    />
+                  </View>
+                  <View style={s.aboutContent}>
+                    <Text style={s.aboutLabel}>
+                      {profile.occupationType === "student" ? "STUDYING" : "WORKING AS"}
+                    </Text>
+                    <Text style={s.aboutValue}>{occupationDetail}</Text>
+                  </View>
+                </View>
+              ) : null}
+
+              {profile.gender ? (
+                <View style={s.aboutRow}>
+                  <View style={[s.aboutIconWrap, { backgroundColor: GENDER_BG[profile.gender] || "#F0F0F0" }]}>
+                    <MaterialIcons
+                      name={GENDER_ICON[profile.gender] || "person"}
+                      size={18}
+                      color={GENDER_COLOR[profile.gender] || C.inkMuted}
+                    />
+                  </View>
+                  <View style={s.aboutContent}>
+                    <Text style={s.aboutLabel}>GENDER</Text>
+                    <Text style={[s.aboutValue, { color: GENDER_COLOR[profile.gender] || C.ink }]}>
+                      {profile.gender}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+            </View>
+          </View>
+        )}
+
+        {/* ── Journey Map (elevated) ── */}
+        {(hometown || currentCity) && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>THE JOURNEY</Text>
+            <JourneyMap
+              hometownCity={profile.hometownCity}
+              hometownState={profile.hometownState}
+              currentCity={profile.city}
+              currentState={profile.state}
+            />
+          </View>
+        )}
+
+        {/* ── Interest tags ── */}
+        {interests.length > 0 && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>INTERESTS</Text>
+            <View style={s.interestRow}>
+              {interests.map((cat) => {
+                const meta = getCatMeta(cat);
+                return (
+                  <View key={cat} style={[s.interestChip, { backgroundColor: meta.bg }]}>
+                    <View style={[s.journeyDot, { backgroundColor: meta.color }]} />
+                    <Text style={[s.interestChipTxt, { color: meta.color }]}>
+                      {cat.split(" / ")[0]}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
+        {/* ── Recent posts ── */}
+        {(userPosts.length > 0 || postsLoading) && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>RECENT POSTS</Text>
+            {postsLoading ? (
+              <ActivityIndicator size="small" color={C.terra} style={{ marginTop: 8 }} />
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 10, paddingVertical: 2 }} nestedScrollEnabled>
+                {userPosts.map(post => (
+                  <MiniPostCard
+                    key={post._id}
+                    post={post}
+                    onPress={() => { /* navigate to post if route exists */ }}
+                  />
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        )}
+
+        <View style={{ height: 120 }} />
       </ScrollView>
 
+      {/* Modals */}
       <ProfileCompletionGateModal
-        visible={showProfileGateModal}
-        onClose={() => setShowProfileGateModal(false)}
-        onCompleteProfile={() => {
-          setShowProfileGateModal(false);
-          navigation.navigate("Account");
-        }}
+        visible={profileGate}
+        onClose={() => setProfileGate(false)}
+        onCompleteProfile={() => { setProfileGate(false); navigation.navigate("Account"); }}
       />
-
-      <UserActionsMenu
-        visible={menuVisible}
-        onClose={() => setMenuVisible(false)}
-        onBlock={handleBlock}
-        onReport={() => setReportVisible(true)}
-      />
-
-      <ReportSheet
-        visible={reportVisible}
-        onClose={() => setReportVisible(false)}
-        onSubmit={handleReport}
-        userName={profile?.fullName}
-        busy={reportBusy}
-      />
+      <UserActionsMenu visible={menuVisible} onClose={() => setMenuVisible(false)} onBlock={handleBlock} onReport={() => setReportVisible(true)} />
+      <ReportSheet visible={reportVisible} onClose={() => setReportVisible(false)} onSubmit={handleReport} userName={profile?.fullName} busy={reportBusy} />
     </View>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  screen:      { flex: 1, backgroundColor: C.surfaceLow },
-  center:      { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
-  loadingText: { fontSize: 14, color: C.onSurfaceVariant, fontWeight: '600' },
-  errorText:   { fontSize: 16, color: C.onSurfaceVariant, fontWeight: '700' },
-  scroll:      { paddingHorizontal: 20, paddingBottom: 120, gap: 16 },
+  screen: { flex: 1, backgroundColor: C.bg },
+  center: { flex: 1, justifyContent: "center", alignItems: "center", gap: 12, paddingHorizontal: 32 },
+  scroll: { paddingHorizontal: 0, paddingBottom: 0 },
 
-  heroCard: {
-    marginTop: 10,
-    borderRadius: 20,
-    borderWidth: 1.5,
-    borderColor: C.outline,
-    backgroundColor: C.surfaceLowest,
-    padding: 16,
+  // skeleton / error
+  errorEmoji: { fontSize: 52, marginBottom: 4 },
+  errorHead:  { fontFamily: SERIF, fontSize: 18, fontWeight: "700", color: C.ink, textAlign: "center" },
+  errorSub:   { fontSize: 13, color: C.inkMuted, textAlign: "center", lineHeight: 20 },
+  errorBack:  { marginTop: 8 },
+  errorBackTxt: { fontSize: 14, fontWeight: "700", color: C.terra },
+
+  // ── Header zone ──
+  headerZone: {
+    backgroundColor: C.surface,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 20,
     gap: 14,
-    ...CARD_SHADOW,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
   },
-  heroTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+  headerTopRow: { flexDirection: "row", alignItems: "flex-start", gap: 14 },
+
+  // avatar
+  avatarRing: {
+    width: 84, height: 84, borderRadius: 42,
+    borderWidth: 2.5, borderColor: C.terra,
+    overflow: "hidden", flexShrink: 0,
   },
-  memberPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderWidth: 1.2,
-    borderColor: C.secondary,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  memberDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: C.secondary,
-  },
-  memberText: {
-    fontSize: 9,
-    fontWeight: "900",
-    letterSpacing: 1,
-    color: C.secondary,
-    textTransform: "uppercase",
-  },
-  moreBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    backgroundColor: C.surfaceLow,
-    borderWidth: 1.5,
-    borderColor: C.outline,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  profileRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-  },
-  avatarWrap: {
-    position: "relative",
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
+  avatarImg:     { width: "100%", height: "100%", borderRadius: 42 },
+  avatarFallback:{ flex: 1, alignItems: "center", justifyContent: "center" },
+  avatarInitial: { fontSize: 34, fontWeight: "900" },
+
+  // name + journey
+  profileName:  { fontFamily: SERIF, fontSize: 22, fontWeight: "700", color: C.ink, letterSpacing: -0.5, marginBottom: 2 },
+  profileHandle:{ fontSize: 12, fontWeight: "600", color: C.inkMuted, marginBottom: 6 },
+  journeyRow:   { flexDirection: "row", alignItems: "center", gap: 5, flexWrap: "wrap" },
+  journeyDot:   { width: 6, height: 6, borderRadius: 3, backgroundColor: C.terra },
+  journeyFrom:  { fontSize: 12, fontWeight: "700", color: C.terra },
+  journeyTo:    { fontSize: 12, fontWeight: "500", color: C.inkMuted },
+
+  // about card
+  aboutCard: {
+    backgroundColor: C.surface,
     borderRadius: 16,
-    padding: 3,
-    borderWidth: 2,
-    borderColor: C.primary,
-    backgroundColor: "#d7e3ff",
-  },
-  avatarImg: {
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    borderRadius: 12,
-  },
-  avatarFallback: {
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarInitial: {
-    fontSize: 40,
-    fontWeight: '900',
-  },
-  genderBadge: {
-    position: 'absolute',
-    bottom: -5,
-    right: -5,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2.5,
-    borderColor: '#FFFFFF',
-  },
-
-  // ── Profile section ──
-  profileSection: {
-    gap: 18,
-  },
-  nameBlock:  { flex: 1, gap: 3 },
-  heroName:   { fontSize: 24, fontWeight: '900', color: C.onSurface, letterSpacing: -0.5 },
-  heroHandle: { fontSize: 13, fontWeight: '700', color: C.onSurfaceVariant },
-  nameAccent: {
-    width: 32,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: C.secondary,
-    marginTop: 6,
-  },
-  heroActions: { flexDirection: 'row', gap: 10 },
-  connectBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    backgroundColor: C.primary,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  connectedBtn: {
-    backgroundColor: "#2d7a55",
-  },
-  connectBtnText:  { color: '#FFFFFF', fontWeight: '900', fontSize: 11, letterSpacing: 1, textTransform: 'uppercase' },
-  messageBtn: {
-    flex: 1,
-    flexDirection: "row",
-    paddingVertical: 10,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    borderWidth: 1.5,
-    borderColor: C.outline,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  messageBtnText: { color: C.onSurface, fontWeight: '900', fontSize: 11, letterSpacing: 1, textTransform: 'uppercase' },
-  messageBtnDisabled: {
-    borderColor: '#e8e4de',
-    backgroundColor: '#f5f2ed',
-    opacity: 0.7,
-  },
-  messageBtnTextDisabled: {
-    color: C.onSurfaceVariant,
-  },
-  metaChips: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  metaChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "#eef2ff",
     borderWidth: 1,
-    borderColor: "#c9d8ff",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    maxWidth: "100%",
+    borderColor: C.border,
+    overflow: "hidden",
+    shadowColor: C.ink,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  metaChipAlt: {
-    backgroundColor: C.secondaryFixed,
-    borderColor: "#f0da9e",
-  },
-  metaChipText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: C.primary,
-  },
-
-  // ── Bio ──
-  sectionCard: {
-    backgroundColor: C.surfaceLowest,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: C.outline,
-    padding: 14,
-    ...CARD_SHADOW,
-  },
-  bioLabel: { fontSize: 9, fontWeight: '900', letterSpacing: 1.5, color: C.onSurfaceVariant },
-  bioText:  { fontSize: 14, lineHeight: 22, color: C.onSurface, fontWeight: '500', fontStyle: 'italic', marginTop: 6 },
-
-  // ── Stats ──
-  statsRow: {
+  aboutRow: {
     flexDirection: "row",
-    gap: 10,
-  },
-  statItem: {
-    flex: 1,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: C.outline,
-    backgroundColor: C.surfaceLowest,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
     alignItems: "center",
-    gap: 4,
-    ...CARD_SHADOW,
+    gap: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
   },
-  statValue:   { fontSize: 22, fontWeight: '900', color: C.onSurface },
-  statLabel:   { fontSize: 10, fontWeight: '900', color: C.onSurfaceVariant, textTransform: 'uppercase', letterSpacing: 1.1 },
+  aboutRowBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: C.divider,
+  },
+  aboutIconWrap: {
+    width: 44, height: 44, borderRadius: 13,
+    alignItems: "center", justifyContent: "center",
+    flexShrink: 0,
+  },
+  aboutContent: { flex: 1, gap: 3 },
+  aboutLabel: {
+    fontSize: 9, fontWeight: "900", color: C.inkMuted,
+    letterSpacing: 1.3, textTransform: "uppercase",
+  },
+  aboutValue: {
+    fontSize: 14, fontWeight: "700", color: C.ink, lineHeight: 20,
+  },
 
-  // ── Detail Rows ──
-  sectionHeader: {
-    marginBottom: 8,
+  moreBtn: {
+    width: 32, height: 32, borderRadius: 10,
+    backgroundColor: C.inputBg, alignItems: "center", justifyContent: "center",
+    marginTop: 2,
+  },
+
+  // actions
+  actionsRow: { flexDirection: "row", gap: 10 },
+  connectBtn: {
+    flex: 1, paddingVertical: 11, borderRadius: 22,
+    backgroundColor: C.terra, alignItems: "center",
+    shadowColor: C.terra, shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25, shadowRadius: 8, elevation: 4,
+  },
+  connectBtnDone: {
+    flex: 1, paddingVertical: 11, borderRadius: 22,
+    backgroundColor: C.green, alignItems: "center",
+  },
+  connectBtnSent: {
+    flex: 1, paddingVertical: 11, borderRadius: 22,
+    borderWidth: 1.5, borderColor: C.green, backgroundColor: C.greenLight, alignItems: "center",
+  },
+  connectBtnTxt: { fontSize: 13, fontWeight: "800", color: C.white, letterSpacing: 0.2 },
+
+  messageBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 6, paddingVertical: 11, borderRadius: 22,
+    backgroundColor: C.surface, borderWidth: 1.5, borderColor: C.border,
+  },
+  messageBtnDisabled: { backgroundColor: C.inputBg, borderColor: C.border },
+  messageBtnTxt: { fontSize: 13, fontWeight: "700", color: C.ink },
+
+  bio: { fontSize: 14, color: C.inkMid, lineHeight: 22, fontStyle: "italic", fontWeight: "400" },
+
+  // ── Stats bar ──
+  statsBar: {
+    flexDirection: "row",
+    backgroundColor: C.surface,
+    paddingVertical: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
+  statCol:     { flex: 1, alignItems: "center", gap: 4 },
+  statDivider: { width: 1, backgroundColor: C.divider, marginVertical: 4 },
+  statNum:     { fontSize: 24, fontWeight: "900", color: C.ink, letterSpacing: -0.5 },
+  statLbl:     { fontSize: 10, fontWeight: "800", color: C.inkMuted, letterSpacing: 1, textTransform: "uppercase" },
+
+  // ── Sections ──
+  section: {
+    paddingHorizontal: 20,
+    paddingTop: 22,
+    paddingBottom: 4,
   },
   sectionTitle: {
-    fontSize: 12,
-    fontWeight: "900",
-    color: C.onSurface,
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-  },
-  sectionMeta: {
-    marginTop: 4,
-    fontSize: 12,
-    color: C.onSurfaceVariant,
-    fontWeight: "600",
-  },
-  detailRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    paddingVertical: 11,
-  },
-  detailRowBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: "#ece7e0",
-  },
-  detailIconWrap: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
-    backgroundColor: "#eef2ff",
-    borderWidth: 1,
-    borderColor: "#c9d8ff",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  detailBody: { flex: 1 },
-  detailLabel: {
-    fontSize: 9,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    color: C.onSurfaceVariant,
-    marginBottom: 3,
-  },
-  detailValue: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: C.onSurface,
-    lineHeight: 20,
+    fontSize: 10, fontWeight: "800", color: C.inkMuted,
+    letterSpacing: 1.5, marginBottom: 12,
   },
 
-  // ── Map ──
-  mapCard: {
-    height: 220,
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: "#d8d8d8",
+  // interests
+  interestRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  interestChip: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20,
   },
-  mapLoading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: C.surfaceLow },
-  mapFallback: { flex: 1, backgroundColor: C.surfaceLow },
-  fallbackImage: { ...StyleSheet.absoluteFillObject, opacity: 0.6 },
-  fallbackOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.02)' },
-  journeyBadgeContainer: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', paddingBottom: 20 },
-  journeyBadgePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.85)',
-    borderWidth: 1,
-    borderColor: C.outline,
-    ...CARD_SHADOW,
+  interestChipTxt: { fontSize: 12, fontWeight: "700" },
+
+  // mini post card
+  miniCard: {
+    width: 130, backgroundColor: C.surface, borderRadius: 14,
+    overflow: "hidden", borderWidth: 1, borderColor: C.border,
   },
-  badgeCity: { gap: 2, alignItems: 'center', maxWidth: 100 },
-  badgeCityText: { fontSize: 13, fontWeight: '800', color: C.onSurface, textAlign: 'center' },
+  miniCatBar:  { height: 4 },
+  miniCardBody:{ padding: 10, gap: 6, flex: 1, justifyContent: "space-between", minHeight: 90 },
+  miniCardTitle: { fontFamily: SERIF, fontSize: 12, fontWeight: "700", color: C.ink, lineHeight: 17 },
+  miniCardTime:  { fontSize: 10, color: C.inkMuted, fontWeight: "500" },
+
+  // map
+  mapCard:    { height: 195, borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: C.border },
+  mapLoading: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: C.inputBg, gap: 8 },
+  mapFallbackTxt: { fontSize: 13, fontWeight: "700", color: C.inkMid },
   mapBar: {
-    position: 'absolute',
-    bottom: 0, left: 0, right: 0,
-    paddingHorizontal: 14, paddingVertical: 11,
-    backgroundColor: 'rgba(255,255,255,0.90)',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(0,0,0,0.06)',
-    flexDirection: 'row',
-    alignItems: 'center',
+    position: "absolute", bottom: 0, left: 0, right: 0,
+    paddingHorizontal: 14, paddingVertical: 10,
+    backgroundColor: "rgba(255,255,255,0.92)",
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "rgba(0,0,0,0.06)",
+    flexDirection: "row", alignItems: "center",
+    justifyContent: "center", gap: 6,
   },
-  mapBarCity:     { flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1 },
-  mapBarDot:      { width: 8, height: 8, borderRadius: 4 },
-  mapBarCityText: { fontSize: 13, fontWeight: '800', color: C.onSurface, flex: 1 },
+  mapBarCity:    { flexDirection: "row", alignItems: "center", gap: 5 },
+  mapBarDot:     { width: 8, height: 8, borderRadius: 4 },
+  mapBarCityTxt: { fontSize: 12, fontWeight: "700", color: C.ink },
 });

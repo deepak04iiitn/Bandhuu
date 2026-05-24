@@ -1,267 +1,310 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
-  FlatList,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-  ActivityIndicator,
+  View, Text, StyleSheet, ScrollView, Image, Pressable,
+  FlatList, ActivityIndicator, Animated, TextInput, Modal,
+  Platform,
 } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { ScreenShell } from "./TabShared";
-import SearchResultItem from "../search/SearchResultItem";
-import SearchSkeleton from "../search/SearchSkeleton";
 import SearchInput from "../search/SearchInput";
+import SearchResultItem from "../search/SearchResultItem";
 import SearchEmptyState from "../search/SearchEmptyState";
-import { searchUsers } from "../../services/users/userService";
+import { searchUsers, sendConnectionRequest, removeConnection, respondToConnectionRequest } from "../../services/users/userService";
+import { useAuth } from "../../store/AuthContext";
+import { useSnackbar } from "../../store/SnackbarContext";
+import ProfileCompletionGateModal, { isProfileCompleteForConnections } from "../common/ProfileCompletionGateModal";
 
-// ─── Design tokens aligned with HomeTab ───────────────────────────────────────
 const C = {
-  primary:                "#004ac6",
-  onPrimary:              "#ffffff",
-  secondary:              "#e8380d",
-  secondaryContainer:     "#fff0ed",
-  onSecondaryContainer:   "#a13211",
-  secondaryFixed:         "#fff8e6",
-  onSecondaryFixed:       "#8f6207",
-  surfaceLowest:          "#ffffff",
-  surfaceLow:             "#f8f6f2",
-  surfaceHigh:            "#ede9e2",
-  onSurface:              "#0a0a0a",
-  onSurfaceVariant:       "#888888",
-  outline:                "#e0dbd4",
-  cardShadow:             "#0a0a0a",
+  bg:          "#F5F0EB",
+  surface:     "#FEFCFA",
+  inputBg:     "#F2EDE6",
+  terra:       "#C84B0C",
+  terraLight:  "#FDF0EA",
+  green:       "#1A6B4A",
+  greenLight:  "#E8F5EE",
+  ink:         "#1C1410",
+  inkMid:      "#5C4F47",
+  inkMuted:    "#9C8D84",
+  border:      "#E8E0D8",
+  divider:     "#F0EAE3",
+  white:       "#FFFFFF",
+  catHousing:  "#3B6CA8", catHousingBg: "#EEF3FC",
+  catTravel:   "#1A7A5E", catTravelBg:  "#E8F5F1",
 };
 
-// ─── Remote portrait URLs (from the original HTML design) ────────────────────
-const IMG = {
-  ishaan:
-    "https://lh3.googleusercontent.com/aida-public/AB6AXuCrpev4RcWuGGFv2A4W5dH1gTg4U6-iT5x1G1HcPASTKvs8IL_TKo5CsLpYyH9030gLCwQ50CmHY3qj6EBWBUEUzoqb4L42rTKVVUGm1HLjB0tqgkvNrQBEt4S9pk8UD1fFqxCP6uUmQgYS16WZN1LWpSAKb4NAXD3iybc3Lqq0nRbsZpXdAcsvrP_Kz2MvmCyKtADzqUyt_T-bxYMQgbqHskQNubITud-MD31kBXc1ATOAIYpAsmmmuazfF_rnQDfPoZThsveRTwk",
-  meera:
-    "https://lh3.googleusercontent.com/aida-public/AB6AXuBHtfMRhRMk7zqFWfObyF9I9rHAifboe6KLuDO4KYjfyUylgADKHIJFYHhfenMosuzyJt95omjmDFWOY0-NgUzKSzeCO2v_O2ginsK-UboBfuBKTxfIjHClM6ZrX8UI_rDc1352dVb9Pew8bbmAB6IhJBH0d-z5ywpxzaR1XaIvM9ZEAX-RjspyK8DPboqmi1jcGx4QYYzL9YTBkH8wojw0fTWbHwusvVAp7KSchWiKBLN8iLdrY42LEsvp57uRQ9cUT9ClH-u7i9M",
-  group1:
-    "https://lh3.googleusercontent.com/aida-public/AB6AXuAsm2VgvQnS9Kwt3LbwjNIukWKyVTaCVx-jNjJTltSz_Ikc7D_PMXG3EO1F0Bab-64wX2qQJBRKa8610sUJRmspZREjye27uKpEygKH_p6lJy26l1vmx1qAnbXMOsdW0CeIo9rheFO2DOo1jWOHp3CFyw-iBzhSRIh7sCgV6wZPFaPQOKl0ku_cAKBXwiM8LMPW5obmBaRLm3njVmU6Co2SmzTjQt-9YSEg0lriFGgnvPJhskfVG6upOgdxclyjwUlWPkewYTKfzPQ",
-  group2:
-    "https://lh3.googleusercontent.com/aida-public/AB6AXuDVLOM9rGmxUgivQg3HtcJrbClOev98CfKYYqYvnY04JovXbbdfNvJ_90YTyU6pIxBsPYvpCrsd1M4lyHHUh6BGLkw3jJXLdSQtTjWmjWHpwuroh9l8nNi_f0wimPiUEcduZHhSESwZxEhV7bDuRyD36ttJxavtHX6nmno_XcllYHiGwnW3CY7ACKjttaeRYK7pLEe2kdhFCzF0rDzW3jNSgL0cd34AKlc83oKi-GKbaF1UjYKDZYxhsEqyIW6Nrsf8xwKsqlV_zhM",
-  group3:
-    "https://lh3.googleusercontent.com/aida-public/AB6AXuBhLtsp43bIMZ5ITiZL5o0Nv2iJ0lFoSiZIoNMDluKNnOPcESZB3LnaRzIYKJr6oWU_6oJGoPyInHyKk67QR9yYr21SlmPgNY1EnXyi85SBkH2Q36RruohCZBMm1ZJSS8ZcnqWnYuF5NCqo1bbM824IYCFoe5ygJ7l5keLq73s1C2YN1p9J-6tlnvdmvuPh9GUvjoXnpgOIg6_yWaSdq-r2tzjnQN0MNjbBfia9MoDB6KY5L1q-AmgJoAMFg7P9OrBKfMqRBDHRdcw",
-  rahul:
-    "https://lh3.googleusercontent.com/aida-public/AB6AXuBe6O4pLaR-3px79qpY-7KxW7a-61G0Ln2aZJ1QdNnEp--ew_MqIcAUmQQIySL0BllQkexvDpdQnJ0mLmHQTn8ONEM0IJ9MyB0hlxpUCTrdu_JgLuZqCh9b-D83zObJDI-v5ZFEJPMKaKZCAnAtlIh4EzhHF0I-WUnDmmlrllIdb1m6jug_1SAyk925HcbL4NhS4Y9GeJteZuh6xph2ptPOyVWWTEJqSBIaeGEqEcJccMCzJgQIWu1A1aD-mcpzEdbpn6MunynpylY",
-  ananya:
-    "https://lh3.googleusercontent.com/aida-public/AB6AXuDKTBpj1QHBzfRmodW1CJ3bA6Oi-ukqRcVYcPDn5TZ8EGP-aIngpTysMdMfcTAUSKTEegfdUzV_tOFZvUDIDBG6fxOmJzqfWuWLzViurpS-Nx2pRSam3XX2MkNADHgYXrnBt5c2pRHZ0KWFBaxZLIL3WgS64GAwDwkTEkdAwob6wjX3cMMtzLq6OTD8Sxt2HA_wcuI86xBVApb1qHCjAnwYvwQV1we9mPVu-7ZY0Jftc6C4M8EpAxH2rJcFAiox7oeVqMuuVoVG6z8",
-};
+const SERIF = Platform.select({ ios: "Georgia", android: "serif", default: "serif" });
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+const PALETTE = [
+  { bg: "#FDF0EA", text: "#C84B0C" },
+  { bg: "#EEF3FC", text: "#3B6CA8" },
+  { bg: "#E8F5F1", text: "#1A7A5E" },
+  { bg: "#FDEEF3", text: "#B83055" },
+  { bg: "#F3EEFE", text: "#7040B8" },
+];
+const getPalette = (name) => PALETTE[(name?.charCodeAt(0) ?? 0) % PALETTE.length];
 
-function LocationPill({ icon, label, color }) {
+// ─── Skeleton row ──────────────────────────────────────────────────────────────
+function SkeletonRow() {
+  const anim = useRef(new Animated.Value(0.45)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1,    duration: 750, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0.45, duration: 750, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [anim]);
   return (
-    <View style={s.locationPill}>
-      <MaterialIcons name={icon} size={13} color={color} />
-      <Text style={s.locationPillText}>{label}</Text>
-    </View>
+    <Animated.View style={[s.skelRow, { opacity: anim }]}>
+      <View style={s.skelAvatar} />
+      <View style={{ flex: 1, gap: 8 }}>
+        <View style={[s.skelLine, { width: "55%" }]} />
+        <View style={[s.skelLine, { width: "38%" }]} />
+      </View>
+      <View style={[s.skelLine, { width: 72, height: 28, borderRadius: 14 }]} />
+    </Animated.View>
   );
 }
 
-function SuggestionCard({ avatar, name, handle, hometown, currentCity, primaryAction }) {
+// ─── Person card (portrait, for discover strips) ───────────────────────────────
+function PersonCard({ user, onPress, onConnect, connectingId }) {
+  const pal     = getPalette(user.fullName);
+  const status  = user.connectionStatus;
+  const isMe    = connectingId === user._id;
+  const city    = user.city || user.location?.split(",")[0]?.trim();
+  const hometown= user.hometownCity || user.hometown;
+
+  const connectLabel = isMe ? "···" : status === "connected" ? "✓ Added" : status === "request_sent" ? "Sent" : "+ Connect";
+  const connectActive = status === "connected";
+  const connectSent   = status === "request_sent";
+
   return (
-    <View style={s.suggestionCard}>
-      <View>
-        <Image source={{ uri: avatar }} style={s.suggestionAvatar} />
-        {primaryAction && (
-          <View style={s.verifiedBadge}>
-            <MaterialIcons name="verified" size={11} color={C.onPrimary} />
-          </View>
-        )}
+    <Pressable style={s.personCard} onPress={() => onPress(user)} activeOpacity={0.8}>
+      <View style={[s.personAvatarWrap, { backgroundColor: pal.bg }]}>
+        {user.profileImageUri
+          ? <Image source={{ uri: user.profileImageUri }} style={s.personAvatar} />
+          : <Text style={[s.personInitial, { color: pal.text }]}>{(user.fullName || "?")[0].toUpperCase()}</Text>
+        }
       </View>
-      <View style={s.suggestionBody}>
-        <Text style={s.suggestionName}>{name}</Text>
-        <Text style={s.suggestionHandle}>{handle}</Text>
-        <View style={s.locationRow}>
-          <LocationPill icon="home" label={`Hometown: ${hometown}`} color={C.primary} />
-          <LocationPill icon="location-city" label={`Current: ${currentCity}`} color={C.secondary} />
+      <Text style={s.personName} numberOfLines={1}>{(user.fullName || "").split(" ")[0]}</Text>
+      {hometown ? (
+        <View style={s.personHometown}>
+          <View style={s.journeyDot} />
+          <Text style={s.personHometownTxt} numberOfLines={1}>{hometown}</Text>
         </View>
-      </View>
+      ) : null}
       <Pressable
-        style={[
-          s.addYaariBtn,
-          primaryAction
-            ? { backgroundColor: C.primary }
-            : { backgroundColor: C.surfaceHigh },
-        ]}
+        style={[s.personConnectBtn, connectActive && s.personConnectBtnDone, connectSent && s.personConnectBtnSent]}
+        onPress={(e) => { e.stopPropagation?.(); onConnect(user); }}
+        disabled={isMe || connectActive}
       >
-        <Text style={[s.addYaariText, { color: primaryAction ? C.onPrimary : C.primary }]}>
-          Add Yaari
+        <Text style={[s.personConnectTxt, connectActive && s.personConnectTxtDone, connectSent && s.personConnectTxtSent]}>
+          {connectLabel}
         </Text>
       </Pressable>
+    </Pressable>
+  );
+}
+
+// ─── Hometown circle banner ────────────────────────────────────────────────────
+function HometownBanner({ users, hometown, onFindThem, onConnect, connectingId }) {
+  if (!users.length || !hometown) return null;
+  const faceCount = Math.min(users.length, 3);
+  const extra     = users.length - faceCount;
+  return (
+    <Pressable style={s.hometownBanner} onPress={onFindThem} activeOpacity={0.85}>
+      <View style={s.hometownBannerLeft} />
+      <View style={s.hometownBannerContent}>
+        <View style={s.hometownBannerTop}>
+          <View style={s.facepile}>
+            {users.slice(0, faceCount).map((u, i) => {
+              const pal = getPalette(u.fullName);
+              return (
+                <View key={u._id} style={[s.facepileItem, { marginLeft: i === 0 ? 0 : -9, zIndex: faceCount - i }]}>
+                  {u.profileImageUri
+                    ? <Image source={{ uri: u.profileImageUri }} style={s.facepileImg} />
+                    : <View style={[s.facepileImg, { backgroundColor: pal.bg, alignItems: "center", justifyContent: "center" }]}>
+                        <Text style={{ fontSize: 10, fontWeight: "900", color: pal.text }}>{(u.fullName || "?")[0]}</Text>
+                      </View>
+                  }
+                </View>
+              );
+            })}
+            {extra > 0 && (
+              <View style={[s.facepileItem, s.facepileExtra, { marginLeft: -9 }]}>
+                <Text style={s.facepileExtraTxt}>+{extra}</Text>
+              </View>
+            )}
+          </View>
+          <Text style={s.hometownBannerCount}>{users.length} people</Text>
+        </View>
+        <Text style={s.hometownBannerTitle}>
+          From <Text style={{ color: C.terra }}>{hometown}</Text>, in your city
+        </Text>
+        <Text style={s.hometownBannerSub}>Your hometown circle is here. Start connecting.</Text>
+      </View>
+      <View style={s.hometownBannerArrow}>
+        <MaterialIcons name="chevron-right" size={20} color={C.terra} />
+      </View>
+    </Pressable>
+  );
+}
+
+// ─── Section header ───────────────────────────────────────────────────────────
+function SectionHeader({ label, action, onAction }) {
+  return (
+    <View style={s.sectionHeader}>
+      <Text style={s.sectionLabel}>{label}</Text>
+      {action && (
+        <Pressable onPress={onAction} hitSlop={10}>
+          <Text style={s.sectionAction}>{action}</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
 
-// ─── Discover view (shown when search bar is empty) ──────────────────────────
+// ─── Filter bottom sheet ──────────────────────────────────────────────────────
+function FilterSheet({ visible, onClose, onApply, initial }) {
+  const [hometown, setHometown] = useState(initial.hometown || "");
+  const [city, setCity]         = useState(initial.city     || "");
+  const [gender, setGender]     = useState(initial.gender   || "");
+  const fade = useRef(new Animated.Value(0)).current;
+  const slide = useRef(new Animated.Value(300)).current;
 
-function DiscoverView() {
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fade,  { toValue: visible ? 1 : 0, duration: 250, useNativeDriver: true }),
+      Animated.spring(slide, { toValue: visible ? 0 : 300, tension: 65, friction: 11, useNativeDriver: true }),
+    ]).start();
+  }, [visible]);
+
+  if (!visible && slide._value >= 300) return null;
+
   return (
-    <>
-      <View style={s.sectionHeader}>
-        <Text style={s.sectionLabel}>TRENDING YAARIS</Text>
-        <Pressable>
-          <Text style={s.viewAllBtn}>See all -></Text>
-        </Pressable>
-      </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={s.railRow}
-      >
-        <Pressable style={[s.railCard, s.railCardLarge]}>
-          <Image source={{ uri: IMG.ishaan }} style={s.railCardImage} resizeMode="cover" />
-          <View style={s.railCardBody}>
-            <Text style={s.railCardTitle}>Ishaan Malik</Text>
-            <Text style={s.railCardMeta}>Lucknow -> Bengaluru</Text>
-            <View style={s.railBadge}>
-              <Text style={s.railBadgeText}>TOP CONNECTOR</Text>
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+      <Animated.View style={[StyleSheet.absoluteFillObject, s.filterOverlay, { opacity: fade }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      </Animated.View>
+      <View style={s.filterOuter} pointerEvents="box-none">
+        <Animated.View style={[s.filterSheet, { transform: [{ translateY: slide }] }]}>
+          <View style={s.filterHandle} />
+          <View style={s.filterHeader}>
+            <Pressable onPress={onClose} style={s.filterCloseBtn} hitSlop={8}>
+              <MaterialIcons name="close" size={18} color={C.inkMuted} />
+            </Pressable>
+            <Text style={s.filterTitle}>Filter People</Text>
+            <Pressable onPress={() => { setHometown(""); setCity(""); setGender(""); }} hitSlop={10}>
+              <Text style={s.filterReset}>Reset</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView style={{ paddingHorizontal: 20 }} showsVerticalScrollIndicator={false}>
+            <Text style={s.filterSectionLabel}>HOMETOWN CITY</Text>
+            <View style={[s.filterInput]}>
+              <MaterialIcons name="home" size={15} color={C.inkMuted} />
+              <TextInput style={s.filterInputText} placeholder="e.g. Patna, Lucknow"
+                placeholderTextColor={C.inkMuted} value={hometown} onChangeText={setHometown} />
             </View>
-          </View>
-        </Pressable>
 
-        <Pressable style={s.railCard}>
-          <Image source={{ uri: IMG.meera }} style={s.railCardImage} resizeMode="cover" />
-          <View style={s.railCardBody}>
-            <Text style={s.railCardTitle}>Meera V.</Text>
-            <Text style={s.railCardMeta}>Jaipur -> Mumbai</Text>
-            <View style={[s.railBadge, { backgroundColor: C.secondaryContainer }]}>
-              <Text style={[s.railBadgeText, { color: C.onSecondaryContainer }]}>NEW HERE</Text>
+            <Text style={[s.filterSectionLabel, { marginTop: 20 }]}>CURRENT CITY</Text>
+            <View style={s.filterInput}>
+              <MaterialIcons name="location-on" size={15} color={C.inkMuted} />
+              <TextInput style={s.filterInputText} placeholder="e.g. Bengaluru, Mumbai"
+                placeholderTextColor={C.inkMuted} value={city} onChangeText={setCity} />
             </View>
-          </View>
-        </Pressable>
 
-        <Pressable style={s.railCardPromo}>
-          <MaterialIcons name="people-alt" size={24} color={C.onPrimary} />
-          <Text style={s.railPromoTitle}>Join Jaipur Circle</Text>
-          <Text style={s.railPromoMeta}>1.2k active yaaris nearby</Text>
-          <View style={s.railPromoBtn}>
-            <Text style={s.railPromoBtnText}>JOIN NOW</Text>
-          </View>
-        </Pressable>
-      </ScrollView>
-
-      <View style={s.sectionHeader}>
-        <Text style={s.sectionLabel}>DISCOVER IN YOUR CITY</Text>
-      </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={s.railRow}
-      >
-        <Pressable style={[s.discoveryCard, { backgroundColor: C.secondaryContainer }]}>
-          <MaterialIcons name="location-on" size={22} color={C.onSecondaryContainer} />
-          <Text style={s.discoveryTitle}>Nearby Yaaris</Text>
-          <Text style={s.discoveryMeta}>People around your area right now</Text>
-        </Pressable>
-
-        <Pressable style={s.discoveryCard}>
-          <View style={s.stackedAvatars}>
-            {[IMG.group1, IMG.group2, IMG.group3].map((uri, i) => (
-              <Image
-                key={i}
-                source={{ uri }}
-                style={[s.stackedAvatar, i > 0 && { marginLeft: -14 }]}
-                resizeMode="cover"
-              />
-            ))}
-            <View style={[s.stackedAvatar, s.stackedCount, { marginLeft: -14 }]}>
-              <Text style={s.stackedCountText}>+24</Text>
+            <Text style={[s.filterSectionLabel, { marginTop: 20 }]}>GENDER</Text>
+            <View style={s.filterChips}>
+              {["Male", "Female", "Other"].map(g => (
+                <Pressable
+                  key={g}
+                  style={[s.filterChip, gender === g && { backgroundColor: C.terra, borderColor: C.terra }]}
+                  onPress={() => setGender(gender === g ? "" : g)}
+                >
+                  <Text style={[s.filterChipTxt, gender === g && { color: C.white }]}>{g}</Text>
+                </Pressable>
+              ))}
             </View>
+            <View style={{ height: 40 }} />
+          </ScrollView>
+
+          <View style={s.filterFooter}>
+            <Pressable style={s.filterApplyBtn} onPress={() => { onApply({ hometown, city, gender }); onClose(); }}>
+              <Text style={s.filterApplyTxt}>Apply Filters</Text>
+            </Pressable>
           </View>
-          <Text style={s.discoveryTitle}>New in your area</Text>
-          <Text style={s.discoveryMeta}>Fresh movers from your hometown</Text>
-        </Pressable>
-      </ScrollView>
-
-      <View style={s.sectionHeader}>
-        <Text style={s.sectionLabel}>SUGGESTED FOR YOU</Text>
+        </Animated.View>
       </View>
-
-      <SuggestionCard
-        avatar={IMG.rahul}
-        name="Rahul Sharma"
-        handle="@rahul_sharma"
-        hometown="Jaipur"
-        currentCity="Bengaluru"
-        primaryAction
-      />
-
-      <SuggestionCard
-        avatar={IMG.ananya}
-        name="Ananya Sharma"
-        handle="@ananya_codes"
-        hometown="Jaipur"
-        currentCity="Mumbai"
-        primaryAction={false}
-      />
-
-      {/* Empty-state hint */}
-      <View style={s.emptyHint}>
-        <View style={s.emptyHintIcon}>
-          <MaterialIcons name="auto-awesome" size={28} color={C.outline} />
-        </View>
-        <Text style={s.emptyHintTitle}>More suggestions coming soon</Text>
-        <Text style={s.emptyHintSubtitle}>
-          We're finding more people from Jaipur in your network.
-        </Text>
-      </View>
-    </>
+    </Modal>
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
-
+// ─── Main component ────────────────────────────────────────────────────────────
 export default function SearchTab({ navigation }) {
+  const { user }         = useAuth();
+  const { showSnackbar } = useSnackbar();
+
   const [query, setQuery]         = useState("");
   const [results, setResults]     = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [page, setPage]           = useState(1);
-  const [total, setTotal]         = useState(0);
   const [hasMore, setHasMore]     = useState(false);
+  const [total, setTotal]         = useState(0);
+  const [page, setPage]           = useState(1);
   const [isMoreLoading, setIsMoreLoading] = useState(false);
 
-  // Debounced search
+  const [filterVisible, setFilterVisible] = useState(false);
+  const [filters, setFilters]             = useState({});
+  const [profileGate, setProfileGate]     = useState(false);
+
+  // discover data
+  const [hometownUsers, setHometownUsers] = useState([]);
+  const [cityUsers, setCityUsers]         = useState([]);
+  const [discoverLoading, setDiscoverLoading] = useState(false);
+
+  // per-user connection state
+  const [connectingId, setConnectingId]   = useState(null);
+
+  const debounceRef = useRef(null);
+  const hasFilter   = !!(filters.hometown || filters.city || filters.gender);
+  const isSearching = query.trim().length > 0 || hasFilter;
+
+  // ── load discover data ──────────────────────────────────────────────────
   useEffect(() => {
-    let active = true;
-    if (!query.trim()) {
-      setResults([]);
-      setTotal(0);
-      setHasMore(false);
-      setPage(1);
-      setIsLoading(false);
+    if (!user?._id) return;
+    const hometown = user.hometown || user.hometownCity;
+    const city     = user.location?.split(",")[0]?.trim() || user.city;
+    if (!hometown && !city) return;
+
+    setDiscoverLoading(true);
+    Promise.all([
+      hometown ? searchUsers("", 1, 10, { hometown }) : Promise.resolve({ users: [] }),
+      city     ? searchUsers("", 1, 8,  { city })     : Promise.resolve({ users: [] }),
+    ]).then(([hResult, cResult]) => {
+      setHometownUsers(hResult.users || []);
+      setCityUsers(cResult.users || []);
+      setDiscoverLoading(false);
+    });
+  }, [user?._id]);
+
+  // ── search with debounce ────────────────────────────────────────────────
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!query.trim() && !hasFilter) {
+      setResults([]); setTotal(0); setHasMore(false); setPage(1); setIsLoading(false);
       return;
     }
+    debounceRef.current = setTimeout(() => {
+      setIsLoading(true); setPage(1);
+      performSearch(query, 1, filters);
+    }, 400);
+    return () => clearTimeout(debounceRef.current);
+  }, [query, filters]);
 
-    const timer = setTimeout(() => {
-      if (active) {
-        setIsLoading(true);
-        setPage(1);
-        performSearch(query, 1);
-      }
-    }, 450);
-
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [query]);
-
-  const performSearch = async (q, p) => {
-    const data = await searchUsers(q, p);
-    
-    if (p === 1) {
-      setResults(data.users || []);
-    } else {
-      setResults(prev => [...prev, ...(data.users || [])]);
-    }
-    
+  const performSearch = async (q, p, f = {}) => {
+    const data = await searchUsers(q, p, 10, f);
+    if (p === 1) setResults(data.users || []);
+    else setResults(prev => [...prev, ...(data.users || [])]);
     setTotal(data.total || 0);
     setHasMore(data.hasMore || false);
     setIsLoading(false);
@@ -271,559 +314,389 @@ export default function SearchTab({ navigation }) {
   const loadMore = () => {
     if (hasMore && !isMoreLoading) {
       setIsMoreLoading(true);
-      const nextPage = page + 1;
-      setPage(nextPage);
-      performSearch(query, nextPage);
+      const next = page + 1;
+      setPage(next);
+      performSearch(query, next, filters);
     }
   };
 
+  // ── connection handler ──────────────────────────────────────────────────
+  const handleConnect = useCallback(async (targetUser) => {
+    if (!targetUser?._id || connectingId) return;
+    if (!isProfileCompleteForConnections(user)) { setProfileGate(true); return; }
+
+    const tid = targetUser._id;
+    setConnectingId(tid);
+
+    const updateStatus = (newStatus) => {
+      const update = (list) => list.map(u => u._id === tid ? { ...u, connectionStatus: newStatus } : u);
+      setResults(update);
+      setHometownUsers(update);
+      setCityUsers(update);
+    };
+
+    const curStatus = targetUser.connectionStatus;
+    let result;
+    if (curStatus === "connected") {
+      result = await removeConnection(tid);
+      if (result.success) { updateStatus("none"); showSnackbar("Connection removed.", "success"); }
+    } else if (curStatus === "request_received") {
+      result = await respondToConnectionRequest(tid, "accept");
+      if (result.success) { updateStatus("connected"); showSnackbar("Connection accepted.", "success"); }
+    } else if (curStatus === "none" || !curStatus) {
+      result = await sendConnectionRequest(tid);
+      if (result.success) { updateStatus("request_sent"); showSnackbar("Connection request sent.", "success"); }
+    } else {
+      result = { success: false, message: "Request already sent." };
+    }
+
+    if (!result?.success) showSnackbar(result?.message || "Unable to perform action", "error");
+    setConnectingId(null);
+  }, [user, connectingId]);
+
   const handleUserPress = useCallback(
-    (user) => navigation.navigate("UserProfile", { username: user.username }),
+    (u) => navigation.navigate("UserProfile", { username: u.username }),
     [navigation]
   );
 
-  const searching = query.trim().length > 0;
+  const handleFindHometown = () => {
+    const hometown = user?.hometown || user?.hometownCity;
+    if (hometown) { setQuery(hometown); }
+  };
 
+  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <ScreenShell
-      navigation={navigation}
-      routeName="Search"
-      noPadding
-      background={C.surfaceLow}
-      contentContainerStyle={s.screenContent}
-      stickyHeaderIndices={[0]}
-    >
-      <View style={s.stickySearchPanel}>
-        <View style={s.sectionHeader}>
-          <Text style={s.sectionLabel}>SEARCH PEOPLE</Text>
+    <>
+      <ScreenShell
+        navigation={navigation}
+        routeName="Search"
+        noPadding
+        background={C.bg}
+        contentContainerStyle={s.screenContent}
+        stickyHeaderIndices={[0]}
+      >
+        {/* ── Sticky header ── */}
+        <View style={s.stickyHeader}>
+          <View style={s.searchRow}>
+            <SearchInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search by name, city or hometown…"
+            />
+            <Pressable
+              style={[s.filterBtn, hasFilter && s.filterBtnActive]}
+              onPress={() => setFilterVisible(true)}
+            >
+              <MaterialIcons name="tune" size={18} color={hasFilter ? C.white : C.inkMuted} />
+            </Pressable>
+          </View>
+          {hasFilter && (
+            <View style={s.activeFilters}>
+              {filters.hometown && (
+                <View style={s.filterTag}>
+                  <MaterialIcons name="home" size={10} color={C.terra} />
+                  <Text style={s.filterTagTxt}>{filters.hometown}</Text>
+                  <Pressable onPress={() => setFilters(f => ({ ...f, hometown: "" }))} hitSlop={8}>
+                    <MaterialIcons name="close" size={12} color={C.inkMuted} />
+                  </Pressable>
+                </View>
+              )}
+              {filters.city && (
+                <View style={s.filterTag}>
+                  <MaterialIcons name="location-on" size={10} color={C.catHousing} />
+                  <Text style={[s.filterTagTxt, { color: C.catHousing }]}>{filters.city}</Text>
+                  <Pressable onPress={() => setFilters(f => ({ ...f, city: "" }))} hitSlop={8}>
+                    <MaterialIcons name="close" size={12} color={C.inkMuted} />
+                  </Pressable>
+                </View>
+              )}
+              {filters.gender && (
+                <View style={s.filterTag}>
+                  <Text style={s.filterTagTxt}>{filters.gender}</Text>
+                  <Pressable onPress={() => setFilters(f => ({ ...f, gender: "" }))} hitSlop={8}>
+                    <MaterialIcons name="close" size={12} color={C.inkMuted} />
+                  </Pressable>
+                </View>
+              )}
+            </View>
+          )}
         </View>
 
-        <SearchInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Search for friends or usernames..."
-        />
-      </View>
+        {/* ── Discover mode ── */}
+        {!isSearching && (
+          <View style={s.discoverWrap}>
+            {discoverLoading ? (
+              <View style={{ gap: 0 }}>
+                {[0, 1, 2, 3].map(i => <SkeletonRow key={i} />)}
+              </View>
+            ) : (
+              <>
+                {/* Hometown circle banner */}
+                <HometownBanner
+                  users={hometownUsers}
+                  hometown={user?.hometown || user?.hometownCity}
+                  onFindThem={handleFindHometown}
+                  onConnect={handleConnect}
+                  connectingId={connectingId}
+                />
 
-      <View style={s.main}>
-        {searching ? (
-          <>
+                {/* From your hometown strip */}
+                {hometownUsers.length > 0 && (
+                  <View>
+                    <SectionHeader label="FROM YOUR HOMETOWN" action="See all" onAction={handleFindHometown} />
+                    <ScrollView
+                      horizontal showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={s.strip} nestedScrollEnabled
+                    >
+                      {hometownUsers.slice(0, 8).map(u => (
+                        <PersonCard
+                          key={u._id} user={u}
+                          onPress={handleUserPress} onConnect={handleConnect}
+                          connectingId={connectingId}
+                        />
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+
+                {/* Active in your city */}
+                {cityUsers.length > 0 && (
+                  <View>
+                    <SectionHeader label="ACTIVE IN YOUR CITY" />
+                    <ScrollView
+                      horizontal showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={s.strip} nestedScrollEnabled
+                    >
+                      {cityUsers.slice(0, 8).map(u => (
+                        <PersonCard
+                          key={u._id} user={u}
+                          onPress={handleUserPress} onConnect={handleConnect}
+                          connectingId={connectingId}
+                        />
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+
+                {/* Empty discover */}
+                {!discoverLoading && hometownUsers.length === 0 && cityUsers.length === 0 && (
+                  <SearchEmptyState query="" />
+                )}
+              </>
+            )}
+          </View>
+        )}
+
+        {/* ── Search / filter results ── */}
+        {isSearching && (
+          <View style={s.resultsWrap}>
             {total > 0 && !isLoading && (
-              <Text style={s.resultsTitle}>
-                {total} {total === 1 ? 'result' : 'results'} for "{query}"
-              </Text>
+              <Text style={s.resultCount}>{total} {total === 1 ? "person" : "people"} found</Text>
             )}
 
-            <View style={s.resultsCard}>
-              {isLoading ? (
-                <SearchSkeleton />
-              ) : results.length > 0 ? (
-                <>
+            {isLoading ? (
+              <View>
+                {[0, 1, 2, 3, 4].map(i => <SkeletonRow key={i} />)}
+              </View>
+            ) : results.length > 0 ? (
+              <>
+                <View style={s.resultsCard}>
                   <FlatList
                     data={results}
-                    keyExtractor={(item) => item._id}
+                    keyExtractor={item => item._id}
                     renderItem={({ item, index }) => (
                       <SearchResultItem
                         user={item}
                         onPress={handleUserPress}
+                        onConnect={handleConnect}
                         isLast={index === results.length - 1}
+                        connectingId={connectingId}
                       />
                     )}
-                    showsVerticalScrollIndicator={false}
                     scrollEnabled={false}
+                    showsVerticalScrollIndicator={false}
                   />
-                  {hasMore && (
-                    <Pressable
-                      onPress={loadMore}
-                      style={({ pressed }) => [s.loadMoreBtn, pressed && { opacity: 0.7 }]}
-                      disabled={isMoreLoading}
-                    >
-                      {isMoreLoading ? (
-                        <ActivityIndicator size="small" color={C.primary} />
-                      ) : (
-                        <Text style={s.loadMoreText}>Show more</Text>
-                      )}
-                    </Pressable>
-                  )}
-                </>
-              ) : (
-                <SearchEmptyState query={query} />
-              )}
-            </View>
-          </>
-        ) : (
-          <DiscoverView />
+                </View>
+                {hasMore && (
+                  <Pressable onPress={loadMore} style={s.loadMoreBtn} disabled={isMoreLoading}>
+                    {isMoreLoading
+                      ? <ActivityIndicator size="small" color={C.terra} />
+                      : <Text style={s.loadMoreTxt}>Load more</Text>
+                    }
+                  </Pressable>
+                )}
+              </>
+            ) : (
+              <SearchEmptyState query={query} />
+            )}
+          </View>
         )}
-      </View>
-    </ScreenShell>
+
+      </ScreenShell>
+
+      <FilterSheet
+        visible={filterVisible}
+        onClose={() => setFilterVisible(false)}
+        onApply={(f) => setFilters(f)}
+        initial={filters}
+      />
+
+      <ProfileCompletionGateModal
+        visible={profileGate}
+        onClose={() => setProfileGate(false)}
+        onCompleteProfile={() => { setProfileGate(false); navigation.navigate("Account"); }}
+      />
+    </>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
-
-const CARD_SHADOW = {
-  shadowColor: C.cardShadow,
-  shadowOffset: { width: 3, height: 6 },
-  shadowOpacity: 0.08,
-  shadowRadius: 12,
-  elevation: 5,
-};
-
 const s = StyleSheet.create({
-  screenContent: {
-    backgroundColor: C.surfaceLow,
-    paddingHorizontal: 0,
-    paddingBottom: 120,
-  },
-  main: {
-    paddingHorizontal: 20,
-    gap: 14,
-    paddingBottom: 120,
-  },
-  stickySearchPanel: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 14,
-    backgroundColor: C.surfaceLow,
-    borderBottomWidth: 1,
-    borderBottomColor: C.border || "#E2E8F0",
-  },
+  screenContent: { paddingHorizontal: 0, paddingBottom: 120 },
 
-  // Section header
+  // header
+  stickyHeader: {
+    backgroundColor: C.bg,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: C.border,
+  },
+  searchRow:     { flexDirection: "row", alignItems: "center", gap: 8 },
+  filterBtn: {
+    width: 44, height: 44, borderRadius: 12,
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+    alignItems: "center", justifyContent: "center",
+  },
+  filterBtnActive: { backgroundColor: C.terra, borderColor: C.terra },
+  activeFilters: {
+    flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10,
+  },
+  filterTag: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    backgroundColor: C.terraLight, paddingHorizontal: 10, paddingVertical: 5,
+    borderRadius: 20, borderWidth: 1, borderColor: C.terra + "40",
+  },
+  filterTagTxt: { fontSize: 11, fontWeight: "700", color: C.terra },
+
+  // discover
+  discoverWrap: { paddingBottom: 40 },
+
+  // hometown banner
+  hometownBanner: {
+    marginHorizontal: 20, marginTop: 20,
+    backgroundColor: C.terraLight,
+    borderRadius: 16, borderWidth: 1, borderColor: C.terra + "30",
+    flexDirection: "row", alignItems: "center", overflow: "hidden",
+  },
+  hometownBannerLeft: { width: 4, alignSelf: "stretch", backgroundColor: C.terra },
+  hometownBannerContent: { flex: 1, padding: 14, gap: 4 },
+  hometownBannerTop: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 },
+  facepile: { flexDirection: "row", alignItems: "center" },
+  facepileItem: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: C.terraLight, overflow: "hidden" },
+  facepileImg:  { width: 28, height: 28, borderRadius: 14 },
+  facepileExtra: { backgroundColor: C.border, alignItems: "center", justifyContent: "center" },
+  facepileExtraTxt: { fontSize: 9, fontWeight: "900", color: C.inkMid },
+  hometownBannerCount: { fontSize: 11, fontWeight: "700", color: C.inkMuted },
+  hometownBannerTitle: { fontFamily: SERIF, fontSize: 15, fontWeight: "700", color: C.ink },
+  hometownBannerSub:   { fontSize: 11, color: C.inkMuted, lineHeight: 16 },
+  hometownBannerArrow: { paddingRight: 12 },
+
+  // section header
   sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 8,
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    paddingHorizontal: 20, paddingTop: 22, paddingBottom: 12,
   },
-  sectionLabel: {
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 2,
-    color: C.onSurfaceVariant,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: C.onSurface,
-  },
-  viewAllBtn: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: C.primary,
-    letterSpacing: 0.3,
-  },
-  railRow: {
-    paddingBottom: 6,
-    gap: 12,
-    paddingRight: 4,
-  },
-  railCard: {
-    width: 176,
-    backgroundColor: C.surfaceLowest,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: C.outline,
-    overflow: "hidden",
-    ...CARD_SHADOW,
-  },
-  railCardLarge: {
-    width: 228,
-  },
-  railCardImage: {
-    width: "100%",
-    height: 120,
-  },
-  railCardBody: {
-    padding: 12,
-    gap: 4,
-  },
-  railCardTitle: {
-    fontSize: 14,
-    fontWeight: "900",
-    color: C.onSurface,
-  },
-  railCardMeta: {
-    fontSize: 11,
-    color: C.onSurfaceVariant,
-    fontWeight: "700",
-  },
-  railBadge: {
-    alignSelf: "flex-start",
-    backgroundColor: C.secondaryFixed,
-    borderRadius: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    marginTop: 2,
-  },
-  railBadgeText: {
-    fontSize: 8,
-    fontWeight: "900",
-    color: C.onSecondaryFixed,
-    letterSpacing: 1,
-  },
-  railCardPromo: {
-    width: 176,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: C.primary,
-    backgroundColor: C.primary,
-    padding: 14,
-    justifyContent: "space-between",
-    ...CARD_SHADOW,
-  },
-  railPromoTitle: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: C.onPrimary,
-    letterSpacing: -0.3,
-    marginTop: 8,
-  },
-  railPromoMeta: {
-    fontSize: 11,
-    color: "rgba(255,255,255,0.8)",
-    fontWeight: "600",
-    marginTop: 2,
-  },
-  railPromoBtn: {
-    marginTop: 12,
-    alignSelf: "flex-start",
-    backgroundColor: "rgba(255,255,255,0.16)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.4)",
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  railPromoBtnText: {
-    color: C.onPrimary,
-    fontSize: 9,
-    fontWeight: "900",
-    letterSpacing: 1,
-  },
-  discoveryCard: {
-    width: 220,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: C.outline,
-    backgroundColor: C.surfaceLowest,
-    padding: 14,
-    ...CARD_SHADOW,
-  },
-  discoveryTitle: {
-    fontSize: 14,
-    fontWeight: "900",
-    color: C.onSurface,
-    marginTop: 10,
-  },
-  discoveryMeta: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: C.onSurfaceVariant,
-    marginTop: 3,
-    lineHeight: 17,
-  },
+  sectionLabel:  { fontSize: 10, fontWeight: "800", color: C.inkMuted, letterSpacing: 1.5 },
+  sectionAction: { fontSize: 12, fontWeight: "700", color: C.terra },
 
-  // Base card
-  card: {
-    borderRadius: 16,
-    overflow: "hidden",
-    borderWidth: 1.5,
-    borderColor: C.outline,
-    ...CARD_SHADOW,
-  },
+  // strip
+  strip: { paddingHorizontal: 20, paddingBottom: 4, gap: 10 },
 
-  // ── Grid row A ──────────────────────────────────────────────────────────────
-  gridRowA: {
-    flexDirection: "row",
-    gap: 12,
+  // person card
+  personCard: {
+    width: 88, backgroundColor: C.surface, borderRadius: 14,
+    padding: 10, alignItems: "center", gap: 4,
+    borderWidth: 1, borderColor: C.border,
   },
+  personAvatarWrap: {
+    width: 52, height: 52, borderRadius: 26,
+    alignItems: "center", justifyContent: "center", overflow: "hidden",
+  },
+  personAvatar:  { width: 52, height: 52, borderRadius: 26 },
+  personInitial: { fontSize: 20, fontWeight: "900" },
+  personName:    { fontSize: 12, fontWeight: "700", color: C.ink, textAlign: "center" },
+  personHometown: { flexDirection: "row", alignItems: "center", gap: 3 },
+  journeyDot:     { width: 5, height: 5, borderRadius: 3, backgroundColor: C.terra },
+  personHometownTxt: { fontSize: 9, fontWeight: "600", color: C.terra, maxWidth: 70 },
+  personConnectBtn: {
+    width: "100%", paddingVertical: 5, borderRadius: 10,
+    backgroundColor: C.terraLight, borderWidth: 1.5, borderColor: C.terra,
+    alignItems: "center", marginTop: 2,
+  },
+  personConnectBtnDone: { backgroundColor: "#E8F5EE", borderColor: C.green },
+  personConnectBtnSent: { backgroundColor: "#E8F5EE", borderColor: C.green },
+  personConnectTxt:     { fontSize: 10, fontWeight: "800", color: C.terra },
+  personConnectTxtDone: { color: C.green },
+  personConnectTxtSent: { color: C.green },
 
-  // Card 1 — Ishaan tall portrait
-  cardTall: {
-    flex: 1,
-    padding: 12,
-    gap: 12,
-  },
-  portraitImg: {
-    width: "100%",
-    aspectRatio: 1,
-    borderRadius: 16,
-  },
-  portraitMeta: {
-    gap: 6,
-  },
-  portraitName: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: C.onSurface,
-  },
-  hometownBadge: {
-    alignSelf: "flex-start",
-    backgroundColor: C.secondaryFixed,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  hometownBadgeText: {
-    fontSize: 9,
-    fontWeight: "700",
-    color: C.onSecondaryFixed,
-    letterSpacing: 0.8,
-  },
+  // search results
+  resultsWrap: { paddingTop: 8 },
+  resultCount: { fontSize: 12, color: C.inkMuted, fontWeight: "600", paddingHorizontal: 20, marginBottom: 8 },
+  resultsCard: { backgroundColor: C.surface },
 
-  // Right column (Cards 2 & 3)
-  gridRightCol: {
-    flex: 1,
-    gap: 12,
-  },
+  loadMoreBtn: { alignItems: "center", paddingVertical: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.divider, marginHorizontal: 20 },
+  loadMoreTxt: { fontSize: 13, fontWeight: "700", color: C.terra },
 
-  // Card 2 — Community (blue)
-  communityCard: {
-    flex: 1,
-    padding: 16,
-    justifyContent: "flex-end",
-    gap: 4,
-  },
-  communityCardTitle: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#FFFFFF",
-    lineHeight: 18,
-  },
-  communityCardMeta: {
-    fontSize: 11,
-    color: "rgba(255,255,255,0.75)",
-  },
+  // skeleton
+  skelRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 14, gap: 12, backgroundColor: C.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.divider },
+  skelAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#EDE5DB" },
+  skelLine:   { height: 12, borderRadius: 6, backgroundColor: "#EDE5DB" },
 
-  // Card 3 — Meera
-  meeraCard: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 10,
-    gap: 6,
+  // filter sheet
+  filterOverlay: { backgroundColor: "rgba(0,0,0,0.5)" },
+  filterOuter:   { flex: 1, justifyContent: "flex-end" },
+  filterSheet: {
+    backgroundColor: C.white,
+    borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    height: "75%",
+    borderWidth: 1, borderColor: C.border, borderBottomWidth: 0,
   },
-  meeraAvatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    borderWidth: 3,
-    borderColor: "rgba(0,74,198,0.12)",
+  filterHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: "center", marginTop: 12 },
+  filterHeader: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 20, paddingTop: 16, paddingBottom: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border,
   },
-  meeraName: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: C.onSurface,
+  filterCloseBtn: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: C.inputBg, alignItems: "center", justifyContent: "center",
   },
-  meeraHandle: {
-    fontSize: 10,
-    color: C.onSurfaceVariant,
+  filterTitle:  { fontSize: 16, fontWeight: "700", color: C.ink },
+  filterReset:  { fontSize: 13, fontWeight: "700", color: C.terra },
+  filterSectionLabel: {
+    fontSize: 10, fontWeight: "900", color: C.inkMuted,
+    letterSpacing: 1.4, marginBottom: 10, marginTop: 20,
   },
-
-  // ── Grid row B ──────────────────────────────────────────────────────────────
-  gridRowB: {
-    flexDirection: "row",
-    gap: 12,
+  filterInput: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    backgroundColor: C.inputBg, borderRadius: 12, borderWidth: 1, borderColor: C.border,
+    paddingHorizontal: 14, paddingVertical: 13,
   },
-
-  // Card 4 — Nearby Yaaris (orange)
-  nearbyCard: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 24,
-    gap: 8,
+  filterInputText: { flex: 1, fontSize: 14, fontWeight: "500", color: C.ink, padding: 0 },
+  filterChips: { flexDirection: "row", gap: 8 },
+  filterChip: {
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+    backgroundColor: C.surface, borderWidth: 1.5, borderColor: C.border,
   },
-  nearbyText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: C.onSecondaryContainer,
-    textAlign: "center",
+  filterChipTxt: { fontSize: 13, fontWeight: "700", color: C.inkMid },
+  filterFooter: { padding: 20, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.border },
+  filterApplyBtn: {
+    backgroundColor: C.terra, height: 52, borderRadius: 26,
+    alignItems: "center", justifyContent: "center",
+    shadowColor: C.terra, shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.28, shadowRadius: 10, elevation: 5,
   },
-
-  // Card 5 — New in area (wide)
-  newInAreaCard: {
-    flex: 1.7,
-    padding: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  stackedAvatars: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  stackedAvatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 3,
-    borderColor: C.surfaceLow,
-  },
-  stackedCount: {
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  stackedCountText: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: C.onSurface,
-  },
-  newInAreaText: {
-    flex: 1,
-    gap: 2,
-  },
-  newInAreaTitle: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: C.onSurface,
-  },
-  newInAreaSubtitle: {
-    fontSize: 10,
-    color: C.onSurfaceVariant,
-    lineHeight: 14,
-  },
-
-  // ── Suggestion cards ────────────────────────────────────────────────────────
-  suggestionCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    backgroundColor: C.surfaceLowest,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: C.outline,
-    padding: 16,
-    ...CARD_SHADOW,
-  },
-  suggestionAvatar: {
-    width: 68,
-    height: 68,
-    borderRadius: 16,
-  },
-  verifiedBadge: {
-    position: "absolute",
-    bottom: -4,
-    right: -4,
-    backgroundColor: C.secondary,
-    borderRadius: 10,
-    padding: 3,
-    borderWidth: 3,
-    borderColor: C.surfaceLowest,
-  },
-  suggestionBody: {
-    flex: 1,
-    gap: 2,
-  },
-  suggestionName: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: C.onSurface,
-  },
-  suggestionHandle: {
-    fontSize: 12,
-    color: C.onSurfaceVariant,
-  },
-  locationRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    marginTop: 6,
-  },
-  locationPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: C.surfaceLow,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  locationPillText: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: C.onSurfaceVariant,
-  },
-  addYaariBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 16,
-    alignItems: "center",
-  },
-  addYaariText: {
-    fontSize: 12,
-    fontWeight: "800",
-  },
-
-  // ── Empty hint ──────────────────────────────────────────────────────────────
-  emptyHint: {
-    alignItems: "center",
-    paddingVertical: 32,
-    gap: 10,
-  },
-  emptyHintIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: C.surfaceHigh,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyHintTitle: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: C.onSurface,
-  },
-  emptyHintSubtitle: {
-    fontSize: 13,
-    color: C.onSurfaceVariant,
-    textAlign: "center",
-    paddingHorizontal: 24,
-  },
-
-  resultsTitle: {
-    fontSize: 12,
-    color: C.onSurfaceVariant,
-    marginTop: 4,
-    marginLeft: 2,
-    fontWeight: "700",
-    letterSpacing: 0.2,
-  },
-  resultsCard: {
-    backgroundColor: C.surfaceLowest,
-    borderRadius: 16,
-    paddingVertical: 4,
-    minHeight: 180,
-    borderWidth: 1.5,
-    borderColor: C.outline,
-    ...CARD_SHADOW,
-  },
-  noResults: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 40,
-    gap: 10,
-  },
-  noResultsText: {
-    fontSize: 14,
-    color: C.onSurfaceVariant,
-  },
-  loadMoreBtn: {
-    marginTop: 18,
-    paddingVertical: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    borderTopWidth: 1,
-    borderTopColor: C.outline,
-  },
-  loadMoreText: {
-    fontSize: 12,
-    fontWeight: "900",
-    color: C.primary,
-    letterSpacing: 1.1,
-    textTransform: "uppercase",
-  },
+  filterApplyTxt: { fontSize: 14, fontWeight: "800", color: C.white, letterSpacing: 0.3 },
 });

@@ -24,43 +24,48 @@ const connectionStatusBetween = (currentUser, targetUserId) => {
 // @access  Private
 export const searchUsers = async (req, res) => {
   try {
-    const query = req.query.q;
-    const page = parseInt(req.query.page) || 1;
+    const { q, hometown, city, gender } = req.query;
+    const page  = parseInt(req.query.page)  || 1;
     const limit = parseInt(req.query.limit) || 5;
-    
-    if (!query) {
-      return res.json({ users: [], hasMore: false });
-    }
 
     const blockedIds = await getBlockedIdSet(req.user._id);
     const excludeIds = [req.user._id.toString(), ...blockedIds];
 
-    const keyword = {
-      $or: [
-        { username: { $regex: query, $options: 'i' } },
-        { fullName: { $regex: query, $options: 'i' } },
-      ],
-    };
+    const filter = { _id: { $nin: excludeIds } };
+
+    if (q?.trim()) {
+      const rx = new RegExp(q.trim(), 'i');
+      filter.$or = [
+        { username:    rx },
+        { fullName:    rx },
+        { hometownCity: rx },
+        { city:        rx },
+      ];
+    }
+    if (hometown?.trim()) filter.hometownCity = { $regex: hometown.trim(), $options: 'i' };
+    if (city?.trim())     filter.city         = { $regex: city.trim(),     $options: 'i' };
+    if (gender?.trim())   filter.gender       = gender.trim();
+
+    // require at least one filter or search term
+    if (!q?.trim() && !hometown?.trim() && !city?.trim() && !gender?.trim()) {
+      return res.json({ users: [], hasMore: false, total: 0 });
+    }
 
     const currentUser = await User.findById(req.user._id).select(
       '_id connections connectionRequestsSent connectionRequestsReceived'
     );
 
-    const filter = { ...keyword, _id: { $nin: excludeIds } };
-    const users = await User.find(filter)
-      .select(userSummarySelect)
-      .skip((page - 1) * limit)
-      .limit(limit);
+    const [users, total] = await Promise.all([
+      User.find(filter).select(userSummarySelect).skip((page - 1) * limit).limit(limit),
+      User.countDocuments(filter),
+    ]);
 
-    const total = await User.countDocuments(filter);
-    const hasMore = total > page * limit;
-
-    const usersWithStatus = users.map((user) => ({
-      ...user.toObject(),
-      connectionStatus: connectionStatusBetween(currentUser, user._id),
+    const usersWithStatus = users.map((u) => ({
+      ...u.toObject(),
+      connectionStatus: connectionStatusBetween(currentUser, u._id),
     }));
 
-    res.json({ users: usersWithStatus, hasMore, total });
+    res.json({ users: usersWithStatus, hasMore: total > page * limit, total });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server Error' });
@@ -91,13 +96,13 @@ export const getUserProfile = async (req, res) => {
       Post.countDocuments({ user: user._id }),
       Meetup.countDocuments({ user: user._id }),
     ]);
-    const totalPosts = postsCount + meetupsCount;
     const totalYaaris = user.connections?.length || 0;
 
     res.json({
       ...user.toObject(),
       connectionStatus: connectionStatusBetween(currentUser, user._id),
-      postsCount: totalPosts,
+      postsCount,
+      meetupsCount,
       yaariCount: totalYaaris,
       connectionsCount: totalYaaris,
     });
@@ -356,6 +361,26 @@ export const getMySavedPosts = async (req, res) => {
       posts: savedPosts,
       count: savedPosts.length,
     });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Server Error' });
+  }
+};
+
+// @desc    Get public posts for a specific user (for profile preview)
+// @route   GET /api/users/:userId/posts
+// @access  Private
+export const getUserPosts = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const limit = Math.min(parseInt(req.query.limit) || 6, 20);
+
+    const posts = await Post.find({ user: userId })
+      .select('_id title category imageUri createdAt likes')
+      .sort({ createdAt: -1 })
+      .limit(limit);
+
+    return res.json({ posts, count: posts.length });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: 'Server Error' });

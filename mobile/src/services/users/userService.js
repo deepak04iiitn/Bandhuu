@@ -8,18 +8,34 @@ const getAuthHeaders = async () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
-export const searchUsers = async (query, page = 1, limit = 5) => {
-  if (!query) return { users: [], hasMore: false };
+export const searchUsers = async (query, page = 1, limit = 5, filters = {}) => {
+  const hasFilter = query?.trim() || filters.hometown || filters.city || filters.gender;
+  if (!hasFilter) return { users: [], hasMore: false, total: 0 };
   try {
     const headers = await getAuthHeaders();
-    const response = await axios.get(`${API_BASE_URL}/users/search`, {
-      headers,
-      params: { q: query, page, limit },
-    });
+    const params = { page, limit };
+    if (query?.trim())      params.q        = query.trim();
+    if (filters.hometown)   params.hometown = filters.hometown;
+    if (filters.city)       params.city     = filters.city;
+    if (filters.gender)     params.gender   = filters.gender;
+    const response = await axios.get(`${API_BASE_URL}/users/search`, { headers, params });
     return response.data;
   } catch (error) {
     console.error('Error searching users:', error?.response?.data || error.message);
-    return { users: [], hasMore: false };
+    return { users: [], hasMore: false, total: 0 };
+  }
+};
+
+export const getUserPosts = async (userId, limit = 6) => {
+  try {
+    const headers = await getAuthHeaders();
+    const response = await axios.get(`${API_BASE_URL}/users/${userId}/posts`, {
+      headers,
+      params: { limit },
+    });
+    return { success: true, posts: response.data.posts || [] };
+  } catch (error) {
+    return { success: false, posts: [] };
   }
 };
 

@@ -1,34 +1,30 @@
 import React, { useState, useRef } from 'react';
-import { View, TextInput, StyleSheet, TouchableOpacity, Pressable } from 'react-native';
+import { View, TextInput, StyleSheet, Pressable } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 
 const C = {
-  ink: "#0a0a0a",
-  muted: "#888888",
-  border: "#e0dbd4",
-  bg: "#f8f6f2",
-  blue: "#004ac6",
-  white: "#ffffff",
+  ink:     "#1C1410",
+  muted:   "#9C8D84",
+  border:  "#E8E0D8",
+  inputBg: "#F2EDE6",
+  terra:   "#C84B0C",
+  white:   "#FFFFFF",
 };
 
-export default function SearchInput({ value, onChangeText, isSearching, placeholder }) {
+export default function SearchInput({ value, onChangeText, placeholder }) {
   const [focused, setFocused] = useState(false);
   const inputRef = useRef(null);
 
   return (
-    <Pressable 
-      style={[styles.container, focused && styles.containerFocused]}
+    <Pressable
+      style={[s.wrap, focused && s.wrapFocused]}
       onPress={() => inputRef.current?.focus()}
     >
-      <MaterialIcons
-        name="search"
-        size={22}
-        color={focused ? C.blue : C.muted}
-      />
+      <MaterialIcons name="search" size={18} color={focused ? C.terra : C.muted} />
       <TextInput
         ref={inputRef}
-        style={styles.input}
-        placeholder={placeholder || "Search by name or @handle..."}
+        style={s.input}
+        placeholder={placeholder || "Search by name, city or hometown…"}
         placeholderTextColor={C.muted}
         value={value}
         onChangeText={onChangeText}
@@ -39,47 +35,27 @@ export default function SearchInput({ value, onChangeText, isSearching, placehol
         returnKeyType="search"
       />
       {value.length > 0 && (
-        <TouchableOpacity 
-          onPress={() => onChangeText('')} 
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          style={styles.clearBtn}
-        >
-          <MaterialIcons name="close" size={20} color={C.muted} />
-        </TouchableOpacity>
+        <Pressable onPress={() => onChangeText('')} hitSlop={10}>
+          <MaterialIcons name="close" size={16} color={C.muted} />
+        </Pressable>
       )}
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    height: 52,
+const s = StyleSheet.create({
+  wrap: {
+    height: 44,
     borderRadius: 12,
-    backgroundColor: C.bg,
-    borderWidth: 1.5,
+    backgroundColor: C.inputBg,
+    borderWidth: 1,
     borderColor: C.border,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-  },
-  containerFocused: {
-    borderColor: C.blue,
-    backgroundColor: C.white,
-  },
-  input: {
+    gap: 9,
     flex: 1,
-    fontSize: 14,
-    color: C.ink,
-    fontWeight: '600',
-    height: '100%',
   },
-  clearBtn: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#f0ece5',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  wrapFocused: { borderColor: C.terra, backgroundColor: C.white },
+  input: { flex: 1, fontSize: 14, color: C.ink, fontWeight: '500', padding: 0 },
 });

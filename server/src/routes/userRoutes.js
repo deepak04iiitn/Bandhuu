@@ -2,6 +2,7 @@ import express from 'express';
 import {
   searchUsers,
   getUserProfile,
+  getUserPosts,
   sendConnectionRequest,
   respondToConnectionRequest,
   getConnectionRequests,
@@ -31,6 +32,7 @@ router.get('/me/connection-requests', protect, getConnectionRequests);
 router.post('/:userId/block', protect, blockUser);
 router.delete('/:userId/block', protect, unblockUser);
 router.post('/:userId/report', protect, reportUser);
+router.get('/:userId/posts', protect, getUserPosts);
 router.post('/:userId/connection-request', protect, requireCompleteProfile, sendConnectionRequest);
 router.post('/:userId/connection-request/respond', protect, respondToConnectionRequest);
 router.delete('/:userId/connections', protect, removeConnection);
