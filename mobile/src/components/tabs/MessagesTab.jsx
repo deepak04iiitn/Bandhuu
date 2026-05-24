@@ -75,20 +75,29 @@ const MAX_IMAGE_SIZE = 2 * 1024 * 1024;
 const QUICK_EMOJIS = ["❤️", "😂", "😮", "😢", "😡", "👍"];
 
 const COLORS = {
-  ink: "#0a0a0a",
-  inkLight: "#3d3d3d",
-  inkMuted: "#888888",
-  paper: "#f5f2ed",
-  paperDark: "#ede9e2",
-  accent: "#e8380d",
-  accentBlue: "#004ac6",
-  accentMint: "#007a5e",
-  white: "#ffffff",
-  cardBg: "#ffffff",
-  border: "#e0dbd4",
-  tagBlue: "#eef2ff",
-  accentGold: "#c9890a",
-  tagGold: "#fff8e6",
+  ink:        "#1C1410",
+  inkLight:   "#5C4F47",
+  inkMuted:   "#9C8D84",
+  paper:      "#F5F0EB",
+  paperDark:  "#EDE8E0",
+  accent:     "#C84B0C",
+  accentBlue: "#1A6B4A",
+  accentMint: "#1A6B4A",
+  white:      "#FEFCFA",
+  cardBg:     "#FEFCFA",
+  border:     "#E8E0D8",
+  tagBlue:    "#FDF0EA",
+  accentGold: "#B45309",
+  tagGold:    "#FEF3C7",
+  // extras
+  surface:    "#FEFCFA",
+  inputBg:    "#F2EDE6",
+  terra:      "#C84B0C",
+  terraLight: "#FDF0EA",
+  green:      "#1A6B4A",
+  greenLight: "#E8F5EE",
+  coralPale:  "#FAEAEA",
+  divider:    "#F0EAE3",
 };
 
 const TAB_BAR_TOTAL = BAR_HEIGHT + FAB_LIFT;
@@ -400,6 +409,42 @@ const TypingBubble = React.memo(() => (
   </View>
 ));
 
+const DateSeparator = React.memo(({ label }) => (
+  <View style={st.dateSepWrap}>
+    <View style={st.dateSepLine} />
+    <Text style={st.dateSepText}>{label}</Text>
+    <View style={st.dateSepLine} />
+  </View>
+));
+
+function buildDateLabel(dateStr) {
+  const d = new Date(dateStr);
+  const today     = new Date().toDateString();
+  const yesterday = new Date(Date.now() - 86400000).toDateString();
+  const dk        = d.toDateString();
+  if (dk === today)     return "Today";
+  if (dk === yesterday) return "Yesterday";
+  if (Date.now() - d.getTime() < 7 * 86400000)
+    return d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function injectDateSeps(msgs) {
+  if (!msgs.length) return msgs;
+  const out = [];
+  let lastKey = null;
+  for (const m of msgs) {
+    if (!m.createdAt) { out.push(m); continue; }
+    const dk = new Date(m.createdAt).toDateString();
+    if (dk !== lastKey) {
+      lastKey = dk;
+      out.push({ _id: `__sep_${dk}`, _isSep: true, label: buildDateLabel(m.createdAt) });
+    }
+    out.push(m);
+  }
+  return out;
+}
+
 export default function MessagesTab({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const { user, token } = useAuth();
@@ -460,6 +505,9 @@ export default function MessagesTab({ navigation, route }) {
   const [showGroupClearModal, setShowGroupClearModal] = useState(false);
   const [showLeaveGroupModal, setShowLeaveGroupModal] = useState(false);
   const [groupHighlightedMessageId, setGroupHighlightedMessageId] = useState(null);
+
+  // Android keyboard height — drives marginBottom on root view until adjustResize (app.json) kicks in after rebuild
+  const [androidKbHeight, setAndroidKbHeight] = useState(0);
 
   const connectionsRef = useRef([]);
   const conversationsRef = useRef([]);
@@ -532,11 +580,34 @@ export default function MessagesTab({ navigation, route }) {
     }
   }, [messages, chatSearchActive, scrollToBottom]);
 
+  // Android: track keyboard height to apply marginBottom on root
+  // softwareKeyboardLayoutMode=resize in app.json will make this automatic after a native rebuild
   useEffect(() => {
-    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const sub = Keyboard.addListener(showEvent, () => scrollToBottom(true));
-    return () => sub.remove();
-  }, [scrollToBottom]);
+    if (Platform.OS !== "android") return;
+    const onShow = (e) => {
+      setAndroidKbHeight(e.endCoordinates.height);
+      setTimeout(() => { scrollToBottom(true); groupScrollToBottom(true); }, 100);
+    };
+    const onHide = () => setAndroidKbHeight(0);
+    const onChange = (e) => {
+      const h = e.endCoordinates.height;
+      setAndroidKbHeight(h > 0 ? h : 0);
+      if (h > 0) setTimeout(() => { scrollToBottom(true); groupScrollToBottom(true); }, 80);
+    };
+    const s1 = Keyboard.addListener("keyboardDidShow",        onShow);
+    const s2 = Keyboard.addListener("keyboardDidHide",        onHide);
+    const s3 = Keyboard.addListener("keyboardDidChangeFrame", onChange);
+    return () => { s1.remove(); s2.remove(); s3.remove(); };
+  }, [scrollToBottom, groupScrollToBottom]);
+
+  // iOS: scroll to bottom when keyboard shows (KAV handles the offset)
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
+    const s = Keyboard.addListener("keyboardWillShow", () => {
+      setTimeout(() => { scrollToBottom(true); groupScrollToBottom(true); }, 100);
+    });
+    return () => s.remove();
+  }, [scrollToBottom, groupScrollToBottom]);
 
   useEffect(() => {
     if (isPeerTyping) scrollToBottom(true);
@@ -1404,11 +1475,15 @@ export default function MessagesTab({ navigation, route }) {
 
   /* ─── CHAT VIEW ─── */
   if (activePeer?._id) {
+    // iOS: KAV behavior="padding" handles keyboard
+    // Android: marginBottom=androidKbHeight shrinks the container above the keyboard
+    //          After native rebuild with softwareKeyboardLayoutMode=resize, this becomes automatic
+    const ChatRoot = Platform.OS === "ios" ? KeyboardAvoidingView : View;
+    const chatRootProps = Platform.OS === "ios"
+      ? { style: st.root, behavior: "padding", keyboardVerticalOffset: 0 }
+      : { style: [st.root, { marginBottom: androidKbHeight }] };
     return (
-      <KeyboardAvoidingView
-        style={st.root}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      >
+      <ChatRoot {...chatRootProps}>
         <StatusBar style="dark" />
         {chatSearchActive ? (
           <View style={[st.chatSearchHeader, { paddingTop: insets.top + 14 }]}>
@@ -1598,7 +1673,7 @@ export default function MessagesTab({ navigation, route }) {
             ) : (
               <FlatList
                 ref={flatListRef}
-                data={messages}
+                data={injectDateSeps(messages)}
                 keyExtractor={(item) => String(item._id)}
                 style={st.chatBody}
                 contentContainerStyle={st.bubbleList}
@@ -1624,30 +1699,34 @@ export default function MessagesTab({ navigation, route }) {
                 ListFooterComponent={isPeerTyping ? <TypingBubble /> : null}
                 ListEmptyComponent={
                   <View style={st.chatEmptyWrap}>
-                    <MaterialIcons name="chat-bubble-outline" size={32} color={COLORS.border} />
-                    <Text style={st.chatEmptyText}>Say hello to start the conversation</Text>
+                    <MaterialIcons name="lock-outline" size={22} color={COLORS.border} style={{ marginBottom: 6 }} />
+                    <Text style={st.chatEmptyText}>Messages are end-to-end encrypted</Text>
+                    <Text style={st.chatEmptySubText}>Say hello to start the conversation</Text>
                   </View>
                 }
-                renderItem={({ item }) => (
-                  <MessageBubble
-                    item={item}
-                    mine={String(item.sender) === String(user?._id)}
-                    user={user}
-                    activePeer={activePeer}
-                    onReply={(msg) => setReplyingTo(msg)}
-                    onJump={(msgId) => scrollToMessage(msgId)}
-                    isHighlighted={
-                      chatSearchActive
-                        ? chatSearchFocusId === String(item._id)
-                        : highlightedMessageId === String(item._id)
-                    }
-                    isSearchMatch={chatSearchActive && chatSearchMatchSet.has(String(item._id))}
-                    decrypt={decrypt}
-                    onViewOneTime={handleViewOneTime}
-                    onLongPress={onBubbleLongPress}
-                    onQuickReact={handleReact}
-                  />
-                )}
+                renderItem={({ item }) => {
+                  if (item._isSep) return <DateSeparator label={item.label} />;
+                  return (
+                    <MessageBubble
+                      item={item}
+                      mine={String(item.sender) === String(user?._id)}
+                      user={user}
+                      activePeer={activePeer}
+                      onReply={(msg) => setReplyingTo(msg)}
+                      onJump={(msgId) => scrollToMessage(msgId)}
+                      isHighlighted={
+                        chatSearchActive
+                          ? chatSearchFocusId === String(item._id)
+                          : highlightedMessageId === String(item._id)
+                      }
+                      isSearchMatch={chatSearchActive && chatSearchMatchSet.has(String(item._id))}
+                      decrypt={decrypt}
+                      onViewOneTime={handleViewOneTime}
+                      onLongPress={onBubbleLongPress}
+                      onQuickReact={handleReact}
+                    />
+                  );
+                }}
               />
             )}
 
@@ -1914,7 +1993,7 @@ export default function MessagesTab({ navigation, route }) {
             },
           }}
         />
-      </KeyboardAvoidingView>
+      </ChatRoot>
     );
   }
 
@@ -1937,11 +2016,13 @@ export default function MessagesTab({ navigation, route }) {
       return member || null;
     };
 
+    const GroupChatRoot = Platform.OS === "ios" ? KeyboardAvoidingView : View;
+    const groupChatRootProps = Platform.OS === "ios"
+      ? { style: st.root, behavior: "padding", keyboardVerticalOffset: 0 }
+      : { style: [st.root, { marginBottom: androidKbHeight }] };
+
     return (
-      <KeyboardAvoidingView
-        style={st.root}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      >
+      <GroupChatRoot {...groupChatRootProps}>
         <StatusBar style="dark" />
 
         {groupSearchActive ? (
@@ -2118,7 +2199,7 @@ export default function MessagesTab({ navigation, route }) {
             ) : (
               <FlatList
                 ref={groupFlatListRef}
-                data={groupMsgsDecrypted}
+                data={injectDateSeps(groupMsgsDecrypted)}
                 keyExtractor={(item) => String(item._id)}
                 style={st.chatBody}
                 contentContainerStyle={st.bubbleList}
@@ -2143,6 +2224,7 @@ export default function MessagesTab({ navigation, route }) {
                   </View>
                 }
                 renderItem={({ item }) => {
+                  if (item._isSep) return <DateSeparator label={item.label} />;
                   if (item.messageType === "system") {
                     return (
                       <View style={st.systemMsgWrap}>
@@ -2466,7 +2548,7 @@ export default function MessagesTab({ navigation, route }) {
             search: { text: COLORS.ink, placeholder: COLORS.inkMuted, icon: COLORS.inkMuted },
           }}
         />
-      </KeyboardAvoidingView>
+      </GroupChatRoot>
     );
   }
 
@@ -2503,22 +2585,22 @@ export default function MessagesTab({ navigation, route }) {
 
         {/* ── YAARIS / MEETUPS TOGGLE ── */}
         <View style={st.msgModeToggle}>
-          {["yaaris", "meetups"].map((tab) => (
-            <Pressable
-              key={tab}
-              onPress={() => setMsgMode(tab)}
-              style={[st.msgModeTab, msgMode === tab && st.msgModeTabActive]}
-            >
-              <MaterialIcons
-                name={tab === "yaaris" ? "chat" : "groups"}
-                size={16}
-                color={msgMode === tab ? COLORS.white : COLORS.inkMuted}
-              />
-              <Text style={[st.msgModeText, msgMode === tab && st.msgModeTextActive]}>
-                {tab === "yaaris" ? "Yaaris" : "Meetups"}
-              </Text>
-            </Pressable>
-          ))}
+          {[
+            { key: "yaaris",  label: "Yaaris",  icon: "chat-bubble-outline" },
+            { key: "meetups", label: "Meetups", icon: "people"              },
+          ].map((tab) => {
+            const active = msgMode === tab.key;
+            return (
+              <Pressable
+                key={tab.key}
+                onPress={() => setMsgMode(tab.key)}
+                style={[st.msgModeTab, active && st.msgModeTabActive]}
+              >
+                <MaterialIcons name={tab.icon} size={16} color={active ? COLORS.white : COLORS.inkMuted} />
+                <Text style={[st.msgModeText, active && st.msgModeTextActive]}>{tab.label}</Text>
+              </Pressable>
+            );
+          })}
         </View>
 
         {msgMode === "yaaris" ? (
@@ -2529,12 +2611,10 @@ export default function MessagesTab({ navigation, route }) {
             </View>
 
             {loadingList ? (
-              <ActivityIndicator style={{ marginTop: 30 }} color={COLORS.accentBlue} size="large" />
+              <ActivityIndicator style={{ marginTop: 30 }} color={COLORS.terra} size="large" />
             ) : filtered.length === 0 ? (
               <View style={st.emptyCard}>
-                <View style={st.emptyIconWrap}>
-                  <MaterialIcons name="chat-bubble-outline" size={28} color={COLORS.accentBlue} />
-                </View>
+                <Text style={st.emptyEmoji}>💬</Text>
                 <Text style={st.emptyTitle}>No messages yet</Text>
                 <Text style={st.emptyBody}>
                   Connect with people in your city,{"\n"}then start your first encrypted chat.
@@ -2593,9 +2673,7 @@ export default function MessagesTab({ navigation, route }) {
 
             {myMeetups.length === 0 ? (
               <View style={st.emptyCard}>
-                <View style={st.emptyIconWrap}>
-                  <MaterialIcons name="groups" size={28} color={COLORS.accentBlue} />
-                </View>
+                <Text style={st.emptyEmoji}>👥</Text>
                 <Text style={st.emptyTitle}>No meetup chats</Text>
                 <Text style={st.emptyBody}>
                   Join a meetup from the Home tab to start group chatting.
@@ -2928,12 +3006,12 @@ const st = StyleSheet.create({
     borderRadius: 10,
   },
   msgModeTabActive: {
-    backgroundColor: COLORS.ink,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    backgroundColor: COLORS.terra,
+    shadowColor: COLORS.terra,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
+    elevation: 4,
   },
   msgModeText: {
     fontSize: 12,
@@ -2963,7 +3041,7 @@ const st = StyleSheet.create({
   groupSenderName: {
     fontSize: 11,
     fontWeight: "700",
-    color: COLORS.accentBlue,
+    color: COLORS.terra,
     marginBottom: 2,
     paddingLeft: 4,
   },
@@ -3080,7 +3158,7 @@ const st = StyleSheet.create({
     height: 20,
     borderRadius: 10,
     paddingHorizontal: 6,
-    backgroundColor: COLORS.accent,
+    backgroundColor: COLORS.terra,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -3097,25 +3175,17 @@ const st = StyleSheet.create({
     marginHorizontal: 30,
     alignItems: "center",
   },
-  emptyIconWrap: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: COLORS.tagBlue,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 16,
-  },
   emptyTitle: {
-    fontSize: 20,
-    fontWeight: "900",
+    fontSize: 18,
+    fontWeight: "700",
     color: COLORS.ink,
-    letterSpacing: -0.5,
+    letterSpacing: -0.3,
+    textAlign: "center",
   },
   emptyBody: {
     marginTop: 8,
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "500",
     color: COLORS.inkMuted,
     textAlign: "center",
     lineHeight: 20,
@@ -3262,12 +3332,12 @@ const st = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: COLORS.accentBlue,
+    backgroundColor: COLORS.terra,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
+    shadowColor: COLORS.terra,
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.28,
     shadowRadius: 6,
     elevation: 6,
   },
@@ -3315,13 +3385,13 @@ const st = StyleSheet.create({
     elevation: 1,
   },
   bubbleMine: {
-    backgroundColor: COLORS.tagBlue,
+    backgroundColor: COLORS.terraLight,
     borderBottomRightRadius: 4,
     borderWidth: 1,
-    borderColor: "rgba(0, 74, 198, 0.15)", // Subtle brand blue border
+    borderColor: "rgba(200,75,12,0.12)",
   },
   bubblePeer: {
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.surface,
     borderBottomLeftRadius: 4,
     borderWidth: 1,
     borderColor: COLORS.border,
@@ -3366,33 +3436,47 @@ const st = StyleSheet.create({
   },
   composer: {
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "center",
     backgroundColor: COLORS.cardBg,
     borderRadius: 22,
     borderWidth: 1,
     borderColor: COLORS.border,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === "android" ? 4 : 8,
+    minHeight: 48,
     gap: 8,
   },
   composerInput: {
     flex: 1,
     maxHeight: 100,
     minHeight: 36,
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: 15,
+    fontWeight: "500",
     color: COLORS.ink,
+    padding: 0,            // remove Android default inner padding
+    paddingTop: 0,
+    paddingBottom: 0,
+    textAlignVertical: "center",
   },
   sendBtn: {
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: COLORS.accent,
+    backgroundColor: COLORS.terra,
     alignItems: "center",
     justifyContent: "center",
+    alignSelf: "center",
+    flexShrink: 0,
+    shadowColor: COLORS.terra,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
   },
   sendBtnDisabled: {
-    opacity: 0.45,
+    backgroundColor: COLORS.border,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   avatarImg: {
     borderWidth: 1,
@@ -3401,13 +3485,13 @@ const st = StyleSheet.create({
   avatarFallback: {
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: COLORS.tagBlue,
+    backgroundColor: COLORS.terraLight,
     borderWidth: 1.5,
-    borderColor: "#cfe0ff",
+    borderColor: "rgba(200,75,12,0.2)",
   },
   avatarInitials: {
     fontWeight: "900",
-    color: COLORS.accentBlue,
+    color: COLORS.terra,
   },
 
   /* ── REPLY UI ── */
@@ -3429,14 +3513,14 @@ const st = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: COLORS.tagBlue,
+    backgroundColor: COLORS.terraLight,
     borderRadius: 8,
     overflow: "hidden",
   },
   replyIndicator: {
     width: 4,
     height: "100%",
-    backgroundColor: COLORS.accentBlue,
+    backgroundColor: COLORS.terra,
   },
   replyMain: {
     flex: 1,
@@ -3446,7 +3530,7 @@ const st = StyleSheet.create({
   replyUserLabel: {
     fontSize: 12,
     fontWeight: "900",
-    color: COLORS.accentBlue,
+    color: COLORS.terra,
   },
   replyTextLabel: {
     fontSize: 12,
@@ -3471,8 +3555,8 @@ const st = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.3)",
   },
   replyInBubblePeer: {
-    backgroundColor: COLORS.tagBlue,
-    borderColor: "#dbeafe",
+    backgroundColor: COLORS.terraLight,
+    borderColor: "rgba(200,75,12,0.15)",
   },
   replyContent: {
     flex: 1,
@@ -3482,7 +3566,7 @@ const st = StyleSheet.create({
   replyUser: {
     fontSize: 11,
     fontWeight: "900",
-    color: COLORS.accentBlue,
+    color: COLORS.terra,
   },
   replyText: {
     fontSize: 11,
@@ -3742,6 +3826,8 @@ const st = StyleSheet.create({
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
+    alignSelf: "center",
+    flexShrink: 0,
   },
 
   /* ── IMAGE BUBBLE ── */
@@ -3960,8 +4046,8 @@ const st = StyleSheet.create({
     elevation: 2,
   },
   reactionPillMine: {
-    borderColor: COLORS.accentBlue + "50",
-    backgroundColor: COLORS.tagBlue,
+    borderColor: COLORS.terra + "40",
+    backgroundColor: COLORS.terraLight,
   },
   reactionPillEmoji: {
     fontSize: 14,
@@ -3973,7 +4059,7 @@ const st = StyleSheet.create({
     marginLeft: 3,
   },
   reactionPillCountMine: {
-    color: COLORS.accentBlue,
+    color: COLORS.terra,
   },
 
   /* ── REACTION PICKER MODAL ── */
@@ -4018,7 +4104,7 @@ const st = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: COLORS.accentBlue,
+    backgroundColor: COLORS.terra,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -4149,5 +4235,40 @@ const st = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     color: COLORS.inkMuted,
+  },
+
+  // ── Date separator ──────────────────────────────────────────────────────
+  dateSepWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 12,
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  dateSepLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: COLORS.border,
+  },
+  dateSepText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: COLORS.inkMuted,
+    letterSpacing: 0.5,
+    paddingHorizontal: 4,
+  },
+
+  // ── Chat empty sub-text ──────────────────────────────────────────────────
+  chatEmptySubText: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: COLORS.inkMuted,
+    marginTop: 2,
+  },
+
+  // ── Empty emoji ──────────────────────────────────────────────────────────
+  emptyEmoji: {
+    fontSize: 44,
+    marginBottom: 8,
   },
 });

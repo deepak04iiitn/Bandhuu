@@ -16,7 +16,8 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#F8FAFC"
-      }
+      },
+      "softwareKeyboardLayoutMode": "resize"
     },
     "plugins": [
       "@react-native-community/datetimepicker"
