@@ -1,19 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import {
-  Alert,
-  Animated,
-  Image,
-  LayoutAnimation,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  UIManager,
-  View,
-  Platform,
+  Alert, Animated, Image, Modal, Pressable, ScrollView,
+  StyleSheet, Text, TextInput, UIManager, View, Platform,
 } from "react-native";
+import Svg, { Circle } from "react-native-svg";
 import * as ImagePicker from "expo-image-picker";
 import { MaterialIcons } from "@expo/vector-icons";
 import { GetCity, GetCountries, GetState } from "react-country-state-city";
@@ -23,157 +13,136 @@ import { ScreenShell } from "./TabShared";
 import { getMyActivitySummary } from "../../services/users/userService";
 import { useSnackbar } from "../../store/SnackbarContext";
 
-// ─── Design Tokens ── aligned with HomeTab visual language ───────────────────
-const T = {
-  // Home-inspired base
-  bg:          "#f5f2ed",
-  bgDeep:      "#ede9e2",
-
-  // Surfaces
-  surface:     "#ffffff",
-  surfaceAlt:  "#f8f6f2",
-
-  // Typography
-  ink:         "#0a0a0a",
-  inkMid:      "#3d3d3d",
-  soft:        "#888888",
-  mute:        "#a6a6a6",
-
-  // Borders
-  line:        "#e0dbd4",
-  lineLight:   "#ece7e0",
-
-  // Accent family from HomeTab
-  blue:        "#004ac6",
-  blueMid:     "#2b66cd",
-  blueLight:   "#c7d8ff",
-  bluePale:    "#eef2ff",
-  blueGhost:   "#f3f6ff",
-  blueDark:    "#003996",
-
-  gold:        "#c9890a",
-  goldDeep:    "#8f6207",
-  goldPale:    "#fff4cf",
-  goldGhost:   "#fff8e6",
-  goldBorder:  "#f0da9e",
-
-  // Utility
+// ─── TOKENS ────────────────────────────────────────────────────────────────────
+const C = {
+  bg:          "#F5F0EB",
+  surface:     "#FEFCFA",
+  inputBg:     "#F2EDE6",
+  terra:       "#C84B0C",
+  terraLight:  "#FDF0EA",
+  green:       "#1A6B4A",
+  greenLight:  "#E8F5EE",
+  ink:         "#1C1410",
+  inkMid:      "#5C4F47",
+  inkMuted:    "#9C8D84",
+  border:      "#E8E0D8",
+  divider:     "#F0EAE3",
   white:       "#FFFFFF",
   coral:       "#C05A5A",
-  coralPale:   "#FAEAEA",
-  success:     "#3A8A60",
-  successPale: "#E0F2E9",
+  coralBg:     "#FAEAEA",
+  amber:       "#B45309",
+  amberLight:  "#FEF3C7",
+  catHousing:  "#3B6CA8", catHousingBg:  "#EEF3FC",
+  catTravel:   "#1A7A5E", catTravelBg:   "#E8F5F1",
+  catHangouts: "#B83055", catHangoutsBg: "#FDEEF3",
+  catHelp:     "#7040B8", catHelpBg:     "#F3EEFE",
+  catGeneral:  "#D4820A", catGeneralBg:  "#FEF7E8",
+};
+
+const SERIF = Platform.select({ ios: "Georgia", android: "serif", default: "serif" });
+
+const REQUIRED_FIELDS = [
+  "fullName", "email", "gender", "bio",
+  "organization", "studyOrPost",
+  "hometownCountry", "hometownCity",
+  "country", "city",
+];
+
+const FIELD_LABELS = {
+  fullName:       "Full name",       email:          "Email",
+  gender:         "Gender",          bio:            "Bio",
+  organization:   "Organization",    studyOrPost:    "Role / Course",
+  hometownCountry:"Hometown country",hometownCity:   "Hometown city",
+  country:        "Current country", city:           "Current city",
 };
 
 const OTHER = { id: -1, name: "Other", isOther: true };
 
-if (
-  Platform.OS === "android" &&
-  UIManager.setLayoutAnimationEnabledExperimental
-) {
+if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental)
   UIManager.setLayoutAnimationEnabledExperimental(true);
+
+// ─── PROGRESS RING ─────────────────────────────────────────────────────────────
+function ProgressRing({ percent, size = 52, stroke = 4 }) {
+  const r = (size - stroke) / 2;
+  const circ = 2 * Math.PI * r;
+  const dash = circ - (percent / 100) * circ;
+  return (
+    <View style={{ width: size, height: size }}>
+      <Svg width={size} height={size}>
+        <Circle cx={size/2} cy={size/2} r={r} stroke={C.border} strokeWidth={stroke} fill="transparent" />
+        <Circle
+          cx={size/2} cy={size/2} r={r}
+          stroke={C.terra} strokeWidth={stroke} fill="transparent"
+          strokeDasharray={`${circ} ${circ}`}
+          strokeDashoffset={dash}
+          strokeLinecap="round"
+          transform={`rotate(-90 ${size/2} ${size/2})`}
+        />
+      </Svg>
+      <View style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center" }]}>
+        <Text style={{ fontSize: 11, fontWeight: "900", color: C.terra }}>{percent}%</Text>
+      </View>
+    </View>
+  );
 }
 
-// ─── Tiny helpers ──────────────────────────────────────────────────────────
-function useFade(trigger) {
+// ─── NAV ROW ───────────────────────────────────────────────────────────────────
+function NavRow({ iconName, iconColor, iconBg, label, preview, onPress, isLast, danger }) {
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        s.navRow,
+        !isLast && s.navRowBorder,
+        pressed && { backgroundColor: danger ? "#FDF5F5" : C.inputBg },
+      ]}
+      onPress={onPress}
+    >
+      <View style={[s.navIconWrap, { backgroundColor: iconBg }]}>
+        <MaterialIcons name={iconName} size={17} color={iconColor} />
+      </View>
+      <View style={s.navContent}>
+        <Text style={[s.navLabel, danger && { color: C.coral }]}>{label}</Text>
+        {preview ? (
+          <Text style={[s.navPreview, danger && { color: C.coral + "99" }]} numberOfLines={1}>
+            {preview}
+          </Text>
+        ) : null}
+      </View>
+      <MaterialIcons name="chevron-right" size={18} color={danger ? C.coral : C.inkMuted} />
+    </Pressable>
+  );
+}
+
+// ─── GROUP LABEL ──────────────────────────────────────────────────────────────
+function GroupLabel({ text }) {
+  return <Text style={s.groupLabel}>{text}</Text>;
+}
+
+// ─── SHEET (bottom sheet modal) ───────────────────────────────────────────────
+function Sheet({ visible, title, subtitle, onClose, children }) {
   const anim = useMemo(() => new Animated.Value(0), []);
   useEffect(() => {
-    Animated.timing(anim, {
-      toValue: trigger ? 1 : 0,
-      duration: 220,
-      useNativeDriver: true,
-    }).start();
-  }, [trigger]);
-  return anim;
-}
+    Animated.timing(anim, { toValue: visible ? 1 : 0, duration: 220, useNativeDriver: true }).start();
+  }, [visible, anim]);
 
-// ─── Info Row ─────────────────────────────────────────────────────────────
-function InfoRow({ icon, label, value, last }) {
   return (
-    <View style={[st.infoRow, !last && st.infoRowBorder]}>
-      <View style={st.infoIcon}>
-        <MaterialIcons name={icon} size={15} color={T.blue} />
-      </View>
-      <View style={st.infoBody}>
-        <Text style={st.infoLabel}>{label}</Text>
-        <Text style={st.infoValue}>{value || "—"}</Text>
-      </View>
-    </View>
-  );
-}
-
-// ─── Field ────────────────────────────────────────────────────────────────
-function Field({ label, ...props }) {
-  const [focused, setFocused] = useState(false);
-  return (
-    <View style={st.fieldWrap}>
-      <Text style={st.fieldLabel}>{label}</Text>
-      <TextInput
-        {...props}
-        placeholderTextColor={T.mute}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        style={[st.fieldInput, focused && st.fieldInputFocused]}
-      />
-    </View>
-  );
-}
-
-// ─── SelectField ─────────────────────────────────────────────────────────
-function SelectField({ label, value, placeholder, onPress, disabled }) {
-  return (
-    <View style={st.fieldWrap}>
-      <Text style={st.fieldLabel}>{label}</Text>
-      <Pressable
-        onPress={onPress}
-        disabled={disabled}
-        style={({ pressed }) => [
-          st.fieldInput,
-          st.fieldSelect,
-          disabled && st.fieldDisabled,
-          pressed && { opacity: 0.75 },
-        ]}
-      >
-        <Text style={[st.fieldSelectText, !value && { color: T.mute }]}>
-          {value || placeholder}
-        </Text>
-        <MaterialIcons name="expand-more" size={20} color={T.soft} />
-      </Pressable>
-    </View>
-  );
-}
-
-// ─── Bottom Sheet ────────────────────────────────────────────────────────
-function Sheet({ visible, title, subtitle, onClose, children }) {
-  const fade = useFade(visible);
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <Animated.View style={[st.backdrop, { opacity: fade }]}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Animated.View style={[s.backdrop, { opacity: anim }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       </Animated.View>
-      <View style={st.sheetOuter}>
-        <View style={st.sheetInner}>
-          <View style={st.sheetHandle} />
-          <View style={st.sheetHeader}>
+      <View style={s.sheetOuter}>
+        <View style={s.sheetInner}>
+          <View style={s.sheetHandle} />
+          <View style={s.sheetHeader}>
             <View style={{ flex: 1 }}>
-              <Text style={st.sheetTitle}>{title}</Text>
-              {subtitle ? (
-                <Text style={st.sheetSub}>{subtitle}</Text>
-              ) : null}
+              <Text style={s.sheetTitle}>{title}</Text>
+              {subtitle ? <Text style={s.sheetSub}>{subtitle}</Text> : null}
             </View>
-            <Pressable onPress={onClose} style={st.closeBtn}>
-              <MaterialIcons name="close" size={16} color={T.soft} />
+            <Pressable onPress={onClose} style={s.sheetCloseBtn} hitSlop={8}>
+              <MaterialIcons name="close" size={17} color={C.inkMuted} />
             </Pressable>
           </View>
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 40 }}
-          >
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 48 }}>
             {children}
           </ScrollView>
         </View>
@@ -182,21 +151,54 @@ function Sheet({ visible, title, subtitle, onClose, children }) {
   );
 }
 
-// ─── Picker Modal ────────────────────────────────────────────────────────
-function Picker({ visible, title, options, onClose, onSelect }) {
+// ─── FIELD ────────────────────────────────────────────────────────────────────
+function Field({ label, ...props }) {
+  const [focused, setFocused] = useState(false);
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
-    >
-      <View style={st.pickerOverlay}>
-        <View style={st.pickerBox}>
-          <View style={st.sheetHeader}>
-            <Text style={st.sheetTitle}>{title}</Text>
-            <Pressable onPress={onClose} style={st.closeBtn}>
-              <MaterialIcons name="close" size={16} color={T.soft} />
+    <View style={s.fieldWrap}>
+      <Text style={s.fieldLabel}>{label}</Text>
+      <TextInput
+        {...props}
+        placeholderTextColor={C.inkMuted}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        style={[s.fieldInput, focused && s.fieldInputFocused, props.style]}
+      />
+    </View>
+  );
+}
+
+// ─── SELECT FIELD ─────────────────────────────────────────────────────────────
+function SelectField({ label, value, placeholder, onPress, disabled }) {
+  return (
+    <View style={s.fieldWrap}>
+      <Text style={s.fieldLabel}>{label}</Text>
+      <Pressable
+        onPress={onPress}
+        disabled={disabled}
+        style={({ pressed }) => [
+          s.fieldInput, s.fieldSelect,
+          disabled && { opacity: 0.4 },
+          pressed && { opacity: 0.75 },
+        ]}
+      >
+        <Text style={[s.fieldSelectTxt, !value && { color: C.inkMuted }]}>{value || placeholder}</Text>
+        <MaterialIcons name="expand-more" size={18} color={C.inkMuted} />
+      </Pressable>
+    </View>
+  );
+}
+
+// ─── PICKER MODAL ─────────────────────────────────────────────────────────────
+function PickerModal({ visible, title, options, onClose, onSelect }) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={s.pickerOverlay}>
+        <View style={s.pickerBox}>
+          <View style={s.sheetHeader}>
+            <Text style={s.sheetTitle}>{title}</Text>
+            <Pressable onPress={onClose} style={s.sheetCloseBtn} hitSlop={8}>
+              <MaterialIcons name="close" size={17} color={C.inkMuted} />
             </Pressable>
           </View>
           <ScrollView showsVerticalScrollIndicator={false}>
@@ -204,18 +206,12 @@ function Picker({ visible, title, options, onClose, onSelect }) {
               <Pressable
                 key={`${item.id}-${i}`}
                 onPress={() => onSelect(item)}
-                style={({ pressed }) => [
-                  st.pickRow,
-                  pressed && { backgroundColor: T.blueGhost },
-                ]}
+                style={({ pressed }) => [s.pickRow, pressed && { backgroundColor: C.terraLight }]}
               >
-                {item.isOther ? (
-                  <View style={st.otherBadge}>
-                    <Text style={st.otherBadgeText}>Other</Text>
-                  </View>
-                ) : (
-                  <Text style={st.pickText}>{item.name}</Text>
-                )}
+                {item.isOther
+                  ? <View style={s.otherBadge}><Text style={s.otherBadgeTxt}>Other / Not Listed</Text></View>
+                  : <Text style={s.pickTxt}>{item.name}</Text>
+                }
               </Pressable>
             ))}
           </ScrollView>
@@ -225,307 +221,184 @@ function Picker({ visible, title, options, onClose, onSelect }) {
   );
 }
 
-// ─── Stat Chip ────────────────────────────────────────────────────────────
-function StatChip({ icon, label, color = T.bluePale, iconColor = T.blue, borderColor = T.line }) {
+// ─── TOGGLE ROW ───────────────────────────────────────────────────────────────
+function ToggleRow({ options, value, onChange }) {
   return (
-    <View style={[st.statChip, { backgroundColor: color, borderColor }]}>
-      <MaterialIcons name={icon} size={13} color={iconColor} />
-      <Text style={[st.statChipText, { color: iconColor }]}>{label}</Text>
+    <View style={s.toggleRow}>
+      {options.map((opt) => {
+        const active = value === opt.value;
+        return (
+          <Pressable
+            key={opt.value}
+            onPress={() => onChange(opt.value)}
+            style={[s.toggleBtn, active && s.toggleBtnActive]}
+          >
+            {opt.icon ? <MaterialIcons name={opt.icon} size={14} color={active ? C.white : C.inkMuted} /> : null}
+            <Text style={[s.toggleBtnTxt, active && s.toggleBtnTxtActive]}>{opt.label}</Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
 
-// ─── Action Row ───────────────────────────────────────────────────────────
-function ActionRow({ icon, label, sublabel, onPress, danger, last }) {
+// ─── SECTION DIVIDER (inside sheet) ──────────────────────────────────────────
+function SheetDivider({ label }) {
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        st.actionRow,
-        !last && st.actionRowBorder,
-        pressed && { backgroundColor: danger ? T.coralPale : T.bgDeep },
-      ]}
-    >
-      <View style={[st.actionIcon, danger && st.actionIconDanger]}>
-        <MaterialIcons
-          name={icon}
-          size={17}
-          color={danger ? T.coral : T.blue}
-        />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={[st.actionLabel, danger && { color: T.coral }]}>
-          {label}
-        </Text>
-        {sublabel ? (
-          <Text style={st.actionSublabel}>{sublabel}</Text>
-        ) : null}
-      </View>
-      <MaterialIcons
-        name="chevron-right"
-        size={18}
-        color={danger ? T.coral : T.mute}
-      />
-    </Pressable>
-  );
-}
-
-// ─── Section Card ──────────────────────────────────────────────────────────
-function SectionCard({
-  title,
-  badge,
-  children,
-  style,
-  collapsible = false,
-  expanded = true,
-  onToggle,
-  preview,
-}) {
-  return (
-    <View style={[st.sectionCard, style]}>
-      <Pressable
-        onPress={collapsible ? onToggle : undefined}
-        disabled={!collapsible}
-        style={({ pressed }) => [
-          st.sectionHead,
-          collapsible && st.sectionHeadPressable,
-          collapsible && pressed && { opacity: 0.78 },
-        ]}
-      >
-        <View style={st.sectionHeadLeft}>
-          <Text style={st.sectionTitle}>{title}</Text>
-          {badge ? (
-            <View style={st.sectionBadge}>
-              <Text style={st.sectionBadgeText}>{badge}</Text>
-            </View>
-          ) : null}
-        </View>
-        {collapsible ? (
-          <MaterialIcons
-            name={expanded ? "expand-less" : "expand-more"}
-            size={22}
-            color={T.soft}
-          />
-        ) : null}
-      </Pressable>
-      {collapsible && !expanded ? (
-        <Text style={st.sectionPreviewText}>{preview || "Tap to view details"}</Text>
-      ) : (
-        children
-      )}
+    <View style={s.sheetDivRow}>
+      <View style={s.sheetDivLine} />
+      <Text style={s.sheetDivTxt}>{label}</Text>
+      <View style={s.sheetDivLine} />
     </View>
   );
 }
 
-// ─── Divider line ─────────────────────────────────────────────────────────
-function Divider() {
-  return <View style={st.divider} />;
-}
-
-// ─── Main Component ────────────────────────────────────────────────────────
+// ─── MAIN COMPONENT ────────────────────────────────────────────────────────────
 export default function AccountTab({ navigation }) {
-  const { user, logout, updateProfile, updateProfileImage, deleteAccount } =
-    useAuth();
+  const { user, logout, updateProfile, updateProfileImage, deleteAccount } = useAuth();
   const { showSnackbar } = useSnackbar();
 
-  const [editOpen, setEditOpen] = useState(false);
-  const [sheetMode, setSheetMode] = useState("edit");
+  // ── sheet state ───────────────────────────────────────────────────────────
+  const [editSheet, setEditSheet] = useState(null); // "personal" | "work" | "location" | null
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerType, setPickerType] = useState("country");
 
-  const [countries, setCountries] = useState([]);
-  const [states, setStates] = useState([]);
-  const [cities, setCities] = useState([]);
-  const [countryId, setCountryId] = useState(null);
-  const [stateId, setStateId] = useState(null);
+  // ── location cascade state ────────────────────────────────────────────────
+  const [countries, setCountries]   = useState([]);
+  const [states, setStates]         = useState([]);
+  const [cities, setCities]         = useState([]);
+  const [countryId, setCountryId]   = useState(null);
+  const [stateId, setStateId]       = useState(null);
   const [countryOther, setCountryOther] = useState(false);
-  const [stateOther, setStateOther] = useState(false);
-  const [cityOther, setCityOther] = useState(false);
+  const [stateOther, setStateOther]     = useState(false);
+  const [cityOther, setCityOther]       = useState(false);
 
-  const [hStates, setHStates] = useState([]);
-  const [hCities, setHCities] = useState([]);
+  const [hStates, setHStates]   = useState([]);
+  const [hCities, setHCities]   = useState([]);
   const [hCountryId, setHCountryId] = useState(null);
-  const [hStateId, setHStateId] = useState(null);
+  const [hStateId, setHStateId]     = useState(null);
   const [hCountryOther, setHCountryOther] = useState(false);
-  const [hStateOther, setHStateOther] = useState(false);
-  const [hCityOther, setHCityOther] = useState(false);
+  const [hStateOther, setHStateOther]     = useState(false);
+  const [hCityOther, setHCityOther]       = useState(false);
 
-  const [busy, setBusy] = useState("");
-  const [edit, setEdit] = useState({
-    fullName: "",
-    email: "",
-    occupationType: "student",
-    gender: "Other",
-    hometownCountry: "",
-    hometownState: "",
-    hometownCity: "",
-    organization: "",
-    studyOrPost: "",
-    country: "",
-    state: "",
-    city: "",
-    bio: "",
+  // ── edit + delete state ───────────────────────────────────────────────────
+  const [busy, setBusy]       = useState("");
+  const [edit, setEdit]       = useState({
+    fullName: "", email: "", occupationType: "student", gender: "Other",
+    hometownCountry: "", hometownState: "", hometownCity: "",
+    organization: "", studyOrPost: "",
+    country: "", state: "", city: "", bio: "",
   });
   const [deletePwd, setDeletePwd] = useState("");
-  const [deletePasswordVisible, setDeletePasswordVisible] = useState(false);
-  const [activitySummary, setActivitySummary] = useState({
-    connections: 0,
-    posts: 0,
-    savedPosts: 0,
-  });
-  const [expandedSections, setExpandedSections] = useState({
-    personal: false,
-    location: false,
-    security: false,
-  });
+  const [deletePwdVisible, setDeletePwdVisible] = useState(false);
 
+  const [activitySummary, setActivitySummary] = useState({ connections: 0, posts: 0, savedPosts: 0 });
+
+  // ── load data ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    GetCountries()
-      .then((d) => setCountries(Array.isArray(d) ? d : []))
-      .catch(() => setCountries([]));
+    GetCountries().then(d => setCountries(Array.isArray(d) ? d : [])).catch(() => setCountries([]));
   }, []);
 
   useFocusEffect(
-    React.useCallback(() => {
-      let isMounted = true;
-      const loadSummary = async () => {
-        const result = await getMyActivitySummary();
-        if (isMounted && result.success) {
-          setActivitySummary({
-            connections: result.connections || 0,
-            posts: result.posts || 0,
-            savedPosts: result.savedPosts || 0,
-          });
-        }
-      };
-      loadSummary();
-      return () => {
-        isMounted = false;
-      };
+    useCallback(() => {
+      let mounted = true;
+      getMyActivitySummary().then(r => {
+        if (mounted && r.success) setActivitySummary({ connections: r.connections || 0, posts: r.posts || 0, savedPosts: r.savedPosts || 0 });
+      });
+      return () => { mounted = false; };
     }, [])
   );
 
+  // ── derived ───────────────────────────────────────────────────────────────
   const initials = useMemo(
-    () =>
-      (user?.fullName || user?.username || "CY")
-        .split(" ")
-        .map((x) => x[0])
-        .slice(0, 2)
-        .join("")
-        .toUpperCase(),
+    () => (user?.fullName || user?.username || "B").split(" ").map(x => x[0]).slice(0, 2).join("").toUpperCase(),
     [user]
   );
 
+  const isProfileComplete = !!(user?.hometownCountry && user?.country && user?.organization && user?.bio);
+  const completedCount    = REQUIRED_FIELDS.filter(k => !!user?.[k]?.trim()).length;
+  const completionPct     = Math.round((completedCount / REQUIRED_FIELDS.length) * 100);
+  const missingFields     = REQUIRED_FIELDS.filter(k => !user?.[k]?.trim());
+
+  const hometown   = user?.hometownCity || "";
+  const currentCity = user?.city || user?.location?.split(",")[0]?.trim() || "";
+  const occupationDetail = user?.studyOrPost && user?.organization
+    ? `${user.studyOrPost} at ${user.organization}`
+    : user?.studyOrPost || user?.organization || null;
+
+  const occupationPreview = occupationDetail || (user?.occupationType === "student" ? "Student" : "Working Professional");
+  const locationPreview   = hometown && currentCity ? `${hometown} → ${currentCity}` : hometown || currentCity || "Not set";
+
+  // ── picker ────────────────────────────────────────────────────────────────
   const pickerOptions =
-    pickerType === "country" || pickerType === "hcountry"
-      ? [...countries, OTHER]
-      : pickerType === "state"
-      ? countryOther || !countryId
-        ? [OTHER]
-        : [...states, OTHER]
-      : pickerType === "city"
-      ? stateOther || countryOther || !stateId
-        ? [OTHER]
-        : [...cities, OTHER]
-      : pickerType === "hstate"
-      ? hCountryOther || !hCountryId
-        ? [OTHER]
-        : [...hStates, OTHER]
-      : hStateOther || hCountryOther || !hStateId
-      ? [OTHER]
-      : [...hCities, OTHER];
+    pickerType === "country" || pickerType === "hcountry" ? [...countries, OTHER]
+    : pickerType === "state"  ? (countryOther  || !countryId  ? [OTHER] : [...states,  OTHER])
+    : pickerType === "city"   ? (stateOther    || countryOther  || !stateId  ? [OTHER] : [...cities, OTHER])
+    : pickerType === "hstate" ? (hCountryOther || !hCountryId ? [OTHER] : [...hStates, OTHER])
+    : (hStateOther || hCountryOther || !hStateId ? [OTHER] : [...hCities, OTHER]);
 
-  const openEdit = async (mode = "edit") => {
-    setSheetMode(mode);
+  const pickerTitle =
+    pickerType === "country" || pickerType === "hcountry" ? "Select Country"
+    : pickerType === "state"  || pickerType === "hstate"  ? "Select State / Province"
+    : "Select City";
+
+  // ── open edit sheet ───────────────────────────────────────────────────────
+  const openEditSheet = async (type) => {
     setEdit({
-      fullName: user?.fullName || "",
-      email: user?.email || "",
+      fullName:       user?.fullName       || "",
+      email:          user?.email          || "",
+      bio:            user?.bio            || "",
+      gender:         user?.gender         || "Other",
       occupationType: user?.occupationType || "student",
-      gender: user?.gender || "Other",
-      hometownCountry: user?.hometownCountry || "",
-      hometownState: user?.hometownState || "",
-      hometownCity: user?.hometownCity || "",
-      organization: user?.organization || "",
-      studyOrPost: user?.studyOrPost || "",
-      country: user?.country || "",
-      state: user?.state || "",
-      city: user?.city || "",
-      bio: user?.bio || "",
+      organization:   user?.organization   || "",
+      studyOrPost:    user?.studyOrPost    || "",
+      hometownCountry:user?.hometownCountry|| "",
+      hometownState:  user?.hometownState  || "",
+      hometownCity:   user?.hometownCity   || "",
+      country:        user?.country        || "",
+      state:          user?.state          || "",
+      city:           user?.city           || "",
     });
-    setCountryId(null); setStateId(null);
-    setCountryOther(false); setStateOther(false); setCityOther(false);
-    setHCountryId(null); setHStateId(null);
-    setHCountryOther(false); setHStateOther(false); setHCityOther(false);
 
-    const matchedCountry = countries.find((c) => c.name === user?.country);
-    if (matchedCountry?.id) {
-      setCountryId(matchedCountry.id);
-      try {
-        const ns = await GetState(matchedCountry.id);
-        setStates(Array.isArray(ns) ? ns : []);
-        const matchedState = ns?.find((s) => s.name === user?.state);
-        if (matchedState?.id) {
-          setStateId(matchedState.id);
-          const nc = await GetCity(matchedCountry.id, matchedState.id);
-          setCities(Array.isArray(nc) ? nc : []);
-        }
-      } catch { setStates([]); setCities([]); }
-    } else if (user?.country) {
-      setCountryOther(true);
-      if (user?.state) setStateOther(true);
-      if (user?.city) setCityOther(true);
+    // Pre-load location cascade for the location sheet
+    if (type === "location") {
+      setCountryId(null); setStateId(null);
+      setCountryOther(false); setStateOther(false); setCityOther(false);
+      setHCountryId(null); setHStateId(null);
+      setHCountryOther(false); setHStateOther(false); setHCityOther(false);
+
+      const mc = countries.find(c => c.name === user?.country);
+      if (mc?.id) {
+        setCountryId(mc.id);
+        try {
+          const ns = await GetState(mc.id); setStates(Array.isArray(ns) ? ns : []);
+          const ms = ns?.find(s => s.name === user?.state);
+          if (ms?.id) { setStateId(ms.id); const nc = await GetCity(mc.id, ms.id); setCities(Array.isArray(nc) ? nc : []); }
+        } catch { setStates([]); setCities([]); }
+      } else if (user?.country) { setCountryOther(true); if (user?.state) setStateOther(true); if (user?.city) setCityOther(true); }
+
+      const mhc = countries.find(c => c.name === user?.hometownCountry);
+      if (mhc?.id) {
+        setHCountryId(mhc.id);
+        try {
+          const hns = await GetState(mhc.id); setHStates(Array.isArray(hns) ? hns : []);
+          const mhs = hns?.find(s => s.name === user?.hometownState);
+          if (mhs?.id) { setHStateId(mhs.id); const hnc = await GetCity(mhc.id, mhs.id); setHCities(Array.isArray(hnc) ? hnc : []); }
+        } catch { setHStates([]); setHCities([]); }
+      } else if (user?.hometownCountry) { setHCountryOther(true); if (user?.hometownState) setHStateOther(true); if (user?.hometownCity) setHCityOther(true); }
     }
 
-    const matchedHCountry = countries.find((c) => c.name === user?.hometownCountry);
-    if (matchedHCountry?.id) {
-      setHCountryId(matchedHCountry.id);
-      try {
-        const hns = await GetState(matchedHCountry.id);
-        setHStates(Array.isArray(hns) ? hns : []);
-        const matchedHState = hns?.find((s) => s.name === user?.hometownState);
-        if (matchedHState?.id) {
-          setHStateId(matchedHState.id);
-          const hnc = await GetCity(matchedHCountry.id, matchedHState.id);
-          setHCities(Array.isArray(hnc) ? hnc : []);
-        }
-      } catch { setHStates([]); setHCities([]); }
-    } else if (user?.hometownCountry) {
-      setHCountryOther(true);
-      if (user?.hometownState) setHStateOther(true);
-      if (user?.hometownCity) setHCityOther(true);
-    }
-
-    setEditOpen(true);
-  };
-
-  const pickPhoto = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted)
-      return showSnackbar("Allow photo access to update your profile picture.", "info");
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.85,
-    });
-    if (result.canceled || !result.assets?.[0]?.uri) return;
-    const res = await updateProfileImage(result.assets[0]);
-    if (!res.success) return showSnackbar(res.message || "Profile photo update failed.", "error");
-    showSnackbar("Profile photo updated.", "success");
+    setEditSheet(type);
   };
 
   const openPicker = async (type) => {
     setPickerType(type);
     setPickerOpen(true);
-    if (type === "state" && countryId && !countryOther)
-      setStates(await GetState(countryId));
-    if (type === "city" && countryId && stateId && !countryOther && !stateOther)
-      setCities(await GetCity(countryId, stateId));
-    if (type === "hstate" && hCountryId && !hCountryOther)
-      setHStates(await GetState(hCountryId));
-    if (type === "hcity" && hCountryId && hStateId && !hCountryOther && !hStateOther)
-      setHCities(await GetCity(hCountryId, hStateId));
+    if (type === "state"  && countryId  && !countryOther)               setStates(await GetState(countryId));
+    if (type === "city"   && countryId  && stateId  && !countryOther && !stateOther) setCities(await GetCity(countryId, stateId));
+    if (type === "hstate" && hCountryId && !hCountryOther)              setHStates(await GetState(hCountryId));
+    if (type === "hcity"  && hCountryId && hStateId && !hCountryOther && !hStateOther) setHCities(await GetCity(hCountryId, hStateId));
   };
 
   const onPick = (item) => {
@@ -534,1249 +407,643 @@ export default function AccountTab({ navigation }) {
       setCountryId(item.isOther ? null : item.id); setStateId(null);
       setCountryOther(!!item.isOther); setStateOther(false); setCityOther(false);
       setStates([]); setCities([]);
-      setEdit((p) => ({ ...p, country: item.isOther ? "" : item.name, state: "", city: "" }));
-      return;
+      setEdit(p => ({ ...p, country: item.isOther ? "" : item.name, state: "", city: "" })); return;
     }
     if (pickerType === "state") {
       setStateId(item.isOther ? null : item.id); setStateOther(!!item.isOther); setCityOther(false); setCities([]);
-      setEdit((p) => ({ ...p, state: item.isOther ? "" : item.name, city: "" }));
-      return;
+      setEdit(p => ({ ...p, state: item.isOther ? "" : item.name, city: "" })); return;
     }
     if (pickerType === "city") {
       setCityOther(!!item.isOther);
-      setEdit((p) => ({ ...p, city: item.isOther ? "" : item.name }));
-      return;
+      setEdit(p => ({ ...p, city: item.isOther ? "" : item.name })); return;
     }
     if (pickerType === "hcountry") {
       setHCountryId(item.isOther ? null : item.id); setHStateId(null);
       setHCountryOther(!!item.isOther); setHStateOther(false); setHCityOther(false);
       setHStates([]); setHCities([]);
-      setEdit((p) => ({ ...p, hometownCountry: item.isOther ? "" : item.name, hometownState: "", hometownCity: "" }));
-      return;
+      setEdit(p => ({ ...p, hometownCountry: item.isOther ? "" : item.name, hometownState: "", hometownCity: "" })); return;
     }
     if (pickerType === "hstate") {
       setHStateId(item.isOther ? null : item.id); setHStateOther(!!item.isOther); setHCityOther(false); setHCities([]);
-      setEdit((p) => ({ ...p, hometownState: item.isOther ? "" : item.name, hometownCity: "" }));
-      return;
+      setEdit(p => ({ ...p, hometownState: item.isOther ? "" : item.name, hometownCity: "" })); return;
     }
     if (pickerType === "hcity") {
       setHCityOther(!!item.isOther);
-      setEdit((p) => ({ ...p, hometownCity: item.isOther ? "" : item.name }));
-      return;
+      setEdit(p => ({ ...p, hometownCity: item.isOther ? "" : item.name })); return;
     }
   };
 
-  const saveProfile = async () => {
-    if (!edit.fullName.trim() || !edit.email.trim() || !edit.gender)
-      return showSnackbar("Please complete Full Name, Email, and Gender.", "info");
-    setBusy("profile");
+  // ── save profile ──────────────────────────────────────────────────────────
+  const saveSheet = async () => {
+    if (!edit.fullName.trim())  return showSnackbar("Full name is required.", "info");
+    if (!edit.email.trim())     return showSnackbar("Email is required.", "info");
+    setBusy("save");
     const res = await updateProfile({
-      fullName: edit.fullName.trim(),
-      email: edit.email.trim(),
+      fullName:       edit.fullName.trim(),
+      email:          edit.email.trim(),
+      bio:            edit.bio.trim(),
+      gender:         edit.gender,
       occupationType: edit.occupationType,
-      gender: edit.gender,
-      hometownCountry: edit.hometownCountry.trim(),
-      hometownState: edit.hometownState.trim(),
-      hometownCity: edit.hometownCity.trim(),
-      organization: edit.organization.trim(),
-      studyOrPost: edit.studyOrPost.trim(),
-      country: edit.country.trim(),
-      state: edit.state.trim(),
-      city: edit.city.trim(),
-      bio: edit.bio.trim(),
+      organization:   edit.organization.trim(),
+      studyOrPost:    edit.studyOrPost.trim(),
+      hometownCountry:edit.hometownCountry.trim(),
+      hometownState:  edit.hometownState.trim(),
+      hometownCity:   edit.hometownCity.trim(),
+      country:        edit.country.trim(),
+      state:          edit.state.trim(),
+      city:           edit.city.trim(),
     });
     setBusy("");
-    if (!res.success) return showSnackbar(res.message || "Profile update failed.", "error");
-    setEditOpen(false);
-    showSnackbar("Profile updated successfully.", "success");
+    if (!res.success) return showSnackbar(res.message || "Update failed.", "error");
+    setEditSheet(null);
+    showSnackbar("Profile updated.", "success");
   };
 
+  // ── photo picker ──────────────────────────────────────────────────────────
+  const pickPhoto = async () => {
+    const { granted } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!granted) return showSnackbar("Allow photo access to update your picture.", "info");
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [1, 1], quality: 0.85 });
+    if (result.canceled || !result.assets?.[0]?.uri) return;
+    const res = await updateProfileImage(result.assets[0]);
+    if (!res.success) return showSnackbar(res.message || "Photo update failed.", "error");
+    showSnackbar("Profile photo updated.", "success");
+  };
+
+  // ── delete account ────────────────────────────────────────────────────────
   const removeAccount = async () => {
-    if (!deletePwd)
-      return showSnackbar("Enter your password to continue.", "info");
+    if (!deletePwd) return showSnackbar("Enter your password to continue.", "info");
     setBusy("delete");
     const res = await deleteAccount(deletePwd);
     setBusy("");
-    if (!res.success) return showSnackbar(res.message || "Delete account failed.", "error");
-    setDeleteOpen(false);
-    setDeletePwd("");
-    setDeletePasswordVisible(false);
-    showSnackbar(
-      res.permanentDeletionAt
-        ? `Account deletion scheduled for ${new Date(res.permanentDeletionAt).toLocaleDateString()}.`
-        : "Your account is scheduled for deletion.",
-      "success",
-      3600
-    );
+    if (!res.success) return showSnackbar(res.message || "Delete failed.", "error");
+    setDeleteOpen(false); setDeletePwd(""); setDeletePwdVisible(false);
+    showSnackbar(res.permanentDeletionAt
+      ? `Account deletion scheduled for ${new Date(res.permanentDeletionAt).toLocaleDateString()}.`
+      : "Your account is scheduled for deletion.", "success", 3600);
   };
 
-  const occupationLabel =
-    user?.occupationType === "working_professional" ? "Working Professional" : "Student";
+  const handleSignOut = () =>
+    Alert.alert("Sign Out", "Are you sure you want to sign out?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Sign Out", style: "destructive", onPress: logout },
+    ]);
 
-  const isProfileComplete = user?.hometownCountry && user?.country && user?.organization && user?.bio;
-  const hometownStr = [user?.hometownCity, user?.hometownState, user?.hometownCountry].filter(Boolean).join(", ") || "Not set";
-  const locationStr = [user?.city, user?.state, user?.country].filter(Boolean).join(", ") || "Not set";
-  const activityCounts = {
-    connections: activitySummary.connections,
-    posts: activitySummary.posts,
-    saved: activitySummary.savedPosts,
-  };
-  const toggleSection = (key) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
+  // ── nav helpers ───────────────────────────────────────────────────────────
+  const navActivity = (type, title, count) =>
+    navigation.navigate("ActivityDetail", { type, title, count });
 
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <ScreenShell
       navigation={navigation}
       routeName="Account"
       noPadding
-      background={T.bg}
-      contentContainerStyle={st.screenContent}
+      background={C.bg}
+      contentContainerStyle={s.screenContent}
     >
-      {/* ── Hero Card ─────────────────────────────────────────────────── */}
-      <View style={st.heroCard}>
+      {/* ── Profile Header ── */}
+      <View style={s.header}>
+        <View style={s.headerRow}>
+          {/* Avatar */}
+          <Pressable onPress={pickPhoto} style={s.avatarWrap}>
+            <View style={s.avatarRing}>
+              {user?.profileImageUri
+                ? <Image source={{ uri: user.profileImageUri }} style={s.avatarImg} />
+                : <View style={[s.avatarFallback]}>
+                    <Text style={s.avatarInitials}>{initials}</Text>
+                  </View>
+              }
+            </View>
+            <View style={s.cameraBtn}>
+              <MaterialIcons name="photo-camera" size={12} color={C.white} />
+            </View>
+          </Pressable>
 
-        {/* Top row */}
-        <View style={st.heroTopRow}>
-          <View style={st.memberBadge}>
-            <View style={st.memberDot} />
-            <Text style={st.memberText}>Member</Text>
-          </View>
-          <Pressable
-            onPress={() => openEdit(isProfileComplete ? "edit" : "complete")}
-            style={({ pressed }) => [st.heroEditBtn, pressed && { opacity: 0.75 }]}
-          >
-            <Text style={st.heroEditText}>
-              {isProfileComplete ? "Edit Profile" : "Complete Profile"}
+          {/* Name + identity */}
+          <View style={{ flex: 1 }}>
+            <Text style={s.profileName} numberOfLines={1}>
+              {user?.fullName || "Bandhuu Member"}
             </Text>
-          </Pressable>
-        </View>
+            <Text style={s.profileHandle}>@{user?.username || "username"}</Text>
 
-        {/* Avatar + name block */}
-        <View style={st.heroCenter}>
-          <Pressable onPress={pickPhoto} style={st.avatarOuter}>
-            <View style={st.avatarRing}>
-              {user?.profileImageUri ? (
-                <Image source={{ uri: user.profileImageUri }} style={st.avatarImg} />
-              ) : (
-                <View style={st.avatarFallback}>
-                  <Text style={st.avatarInitials}>{initials}</Text>
-                </View>
-              )}
-            </View>
-            <View style={st.cameraBtn}>
-              <MaterialIcons name="photo-camera" size={11} color={T.white} />
-            </View>
-          </Pressable>
+            {(hometown || currentCity) ? (
+              <View style={s.journeyRow}>
+                {hometown ? <><View style={s.journeyDot} /><Text style={s.journeyFrom}>{hometown}</Text></> : null}
+                {hometown && currentCity ? <MaterialIcons name="east" size={11} color={C.inkMuted} /> : null}
+                {currentCity ? <Text style={s.journeyTo}>{currentCity}</Text> : null}
+              </View>
+            ) : null}
 
-          <View style={st.heroNameBlock}>
-            <Text style={st.heroName}>{user?.fullName || "Bandhuu Member"}</Text>
-            <Text style={st.heroHandle}>@{user?.username || "bandhuu"}</Text>
-
-            {/* Gold accent underline */}
-            <View style={st.goldAccentLine} />
+            {occupationDetail ? (
+              <View style={s.occChip}>
+                <MaterialIcons name={user?.occupationType === "student" ? "school" : "work-outline"} size={10} color={C.catHousing} />
+                <Text style={s.occChipTxt} numberOfLines={1}>{occupationDetail}</Text>
+              </View>
+            ) : null}
           </View>
         </View>
 
-        {/* Chips */}
-        <View style={st.chipRow}>
-          <StatChip
-            icon={user?.occupationType === "working_professional" ? "work" : "school"}
-            label={occupationLabel}
-            color={T.bluePale}
-            iconColor={T.blueDark}
-            borderColor={T.blueLight}
-          />
-          <StatChip
-            icon="location-on"
-            label={[user?.city, user?.state].filter(Boolean).join(", ") || "Location"}
-            color={T.goldGhost}
-            iconColor={T.goldDeep}
-            borderColor={T.goldBorder}
-          />
-        </View>
-      </View>
+        {/* Bio */}
+        {user?.bio ? <Text style={s.bio} numberOfLines={2}>{user.bio}</Text> : null}
 
-      {/* ── Personal Info ───────────────────────────────────────────────── */}
-      <SectionCard
-        title="Personal Information"
-        badge="Individual"
-        collapsible
-        expanded={expandedSections.personal}
-        onToggle={() => toggleSection("personal")}
-        preview={`${user?.fullName || "No name"} · ${user?.email || "No email"}`}
-      >
-        <InfoRow icon="person" label="Full Name" value={user?.fullName} />
-        <InfoRow icon="alternate-email" label="Username" value={user?.username ? `@${user.username}` : null} />
-        <InfoRow icon="mail-outline" label="Email" value={user?.email} />
-        <InfoRow icon="people-outline" label="Gender" value={user?.gender} />
-        <InfoRow icon="business" label={occupationLabel} value={user?.organization ? `${user?.studyOrPost} at ${user?.organization}` : "Not set"} />
-        <InfoRow icon="notes" label="Bio" value={user?.bio} last />
-      </SectionCard>
-
-      {/* ── Location Details ────────────────────────────────────────────── */}
-      <SectionCard
-        title="Location Details"
-        badge="Proximity"
-        collapsible
-        expanded={expandedSections.location}
-        onToggle={() => toggleSection("location")}
-        preview={locationStr}
-      >
-        <InfoRow icon="home" label="Hometown" value={hometownStr} />
-        <InfoRow icon="location-on" label="Current Location" value={locationStr} last />
-      </SectionCard>
-
-      {/* ── Security ──────────────────────────────────────────────────────── */}
-      <SectionCard
-        title="Security"
-        badge="Protected"
-        collapsible
-        expanded={expandedSections.security}
-        onToggle={() => toggleSection("security")}
-        preview={user?.securityQuestion ? "Security question configured" : "Not configured"}
-      >
-        <InfoRow
-          icon="help-outline"
-          label="Security Question"
-          value={user?.securityQuestion || "Not configured"}
-        />
-        <InfoRow
-          icon="lock-outline"
-          label="Security Answer"
-          value={user?.hasSecurityAnswer ? "••••••••  (hidden for your safety)" : "Not configured"}
-          last
-        />
-      </SectionCard>
-
-      <SectionCard title="My Activity" badge="Manage">
-        <View style={st.activityMenuWrap}>
-          <Pressable
-            onPress={() =>
-              navigation.navigate("ActivityDetail", {
-                type: "connections",
-                title: "Connections",
-                count: activityCounts.connections,
-              })
-            }
-            style={({ pressed }) => [st.activityMenuRow, pressed && { opacity: 0.8 }]}
-          >
-            <View style={st.activityMenuLeft}>
-              <View style={st.activityMenuIcon}>
-                <MaterialIcons name="people-outline" size={16} color={T.blue} />
-              </View>
-              <View>
-                <Text style={st.activityMenuTitle}>Connections</Text>
-                <Text style={st.activityMenuSub}>View and manage your connections</Text>
-              </View>
-            </View>
-            <View style={st.activityCountWrap}>
-              <Text style={st.activityCountText}>{activityCounts.connections}</Text>
-              <MaterialIcons name="chevron-right" size={18} color={T.mute} />
-            </View>
-          </Pressable>
-
-          <Pressable
-            onPress={() =>
-              navigation.navigate("ActivityDetail", {
-                type: "posts",
-                title: "Posts",
-                count: activityCounts.posts,
-              })
-            }
-            style={({ pressed }) => [st.activityMenuRow, st.activityMenuBorder, pressed && { opacity: 0.8 }]}
-          >
-            <View style={st.activityMenuLeft}>
-              <View style={st.activityMenuIcon}>
-                <MaterialIcons name="description" size={16} color={T.blue} />
-              </View>
-              <View>
-                <Text style={st.activityMenuTitle}>Posts</Text>
-                <Text style={st.activityMenuSub}>Posts + meetups in one place</Text>
-              </View>
-            </View>
-            <View style={st.activityCountWrap}>
-              <Text style={st.activityCountText}>{activityCounts.posts}</Text>
-              <MaterialIcons name="chevron-right" size={18} color={T.mute} />
-            </View>
-          </Pressable>
-
-          <Pressable
-            onPress={() =>
-              navigation.navigate("ActivityDetail", {
-                type: "saved",
-                title: "Saved Posts",
-                count: activityCounts.saved,
-              })
-            }
-            style={({ pressed }) => [st.activityMenuRow, st.activityMenuBorder, pressed && { opacity: 0.8 }]}
-          >
-            <View style={st.activityMenuLeft}>
-              <View style={st.activityMenuIcon}>
-                <MaterialIcons name="bookmark-border" size={16} color={T.blue} />
-              </View>
-              <View>
-                <Text style={st.activityMenuTitle}>Saved Posts</Text>
-                <Text style={st.activityMenuSub}>Your bookmarked posts collection</Text>
-              </View>
-            </View>
-            <View style={st.activityCountWrap}>
-              <Text style={st.activityCountText}>{activityCounts.saved}</Text>
-              <MaterialIcons name="chevron-right" size={18} color={T.mute} />
-            </View>
-          </Pressable>
-        </View>
-      </SectionCard>
-
-      {/* ── Quick Actions ─────────────────────────────────────────────────── */}
-      <SectionCard title="Account Actions">
-        <ActionRow
-          icon="edit"
-          label="Edit Profile Details"
-          sublabel="Update your existing information"
-          onPress={() => openEdit("edit")}
-        />
-        {!isProfileComplete && (
-          <ActionRow
-            icon="playlist-add-check"
-            label="Complete Profile"
-            sublabel="Fill missing fields like Hometown"
-            onPress={() => openEdit("complete")}
-          />
-        )}
-        <ActionRow
-          icon="logout"
-          label="Sign Out"
-          sublabel="You can always log back in"
-          onPress={() =>
-            Alert.alert("Sign Out", "Are you sure you want to sign out?", [
-              { text: "Cancel", style: "cancel" },
-              { text: "Sign Out", style: "destructive", onPress: logout },
-            ])
-          }
-        />
-        <ActionRow
-          icon="delete-forever"
-          label="Delete Account"
-          sublabel="Permanently remove your data"
-          onPress={() => setDeleteOpen(true)}
-          danger
-          last
-        />
-      </SectionCard>
-
-      {/* ── App Info ──────────────────────────────────────────────────────── */}
-      <View style={st.appInfo}>
-        <Text style={st.appInfoText}>Bandhuu · v1.0.0</Text>
-        <Text style={st.appInfoDot}>·</Text>
-        <Text style={st.appInfoText}>Privacy Policy</Text>
-        <Text style={st.appInfoDot}>·</Text>
-        <Text style={st.appInfoText}>Terms</Text>
-      </View>
-
-      {/* ── Pickers & Modals ──────────────────────────────────────────────── */}
-      <Picker
-        visible={pickerOpen}
-        title={
-          pickerType === "country" || pickerType === "hcountry"
-            ? "Select Country"
-            : pickerType === "state" || pickerType === "hstate"
-            ? "Select State / Province"
-            : "Select City"
-        }
-        options={pickerOptions}
-        onClose={() => setPickerOpen(false)}
-        onSelect={onPick}
-      />
-
-      {/* ── Edit Sheet ────────────────────────────────────────────────────── */}
-      <Sheet
-        visible={editOpen}
-        onClose={() => setEditOpen(false)}
-        title={sheetMode === "edit" ? "Edit Profile" : "Complete Profile"}
-        subtitle={
-          sheetMode === "edit"
-            ? "Updates are visible to your connections."
-            : "Fill in your missing details."
-        }
-      >
-        {sheetMode === "edit" && (
-          <>
-            <Field
-              label="Full Name"
-              value={edit.fullName}
-              onChangeText={(v) => setEdit((p) => ({ ...p, fullName: v }))}
-              placeholder="Your full name"
-            />
-            <Field
-              label="Email Address"
-              value={edit.email}
-              onChangeText={(v) => setEdit((p) => ({ ...p, email: v }))}
-              placeholder="you@example.com"
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-          </>
-        )}
-        {(sheetMode === "edit" || (sheetMode === "complete" && !user?.bio)) && (
-          <Field
-            label="Bio"
-            value={edit.bio}
-            onChangeText={(v) => setEdit((p) => ({ ...p, bio: v }))}
-            placeholder="Tell us a bit about yourself..."
-            multiline
-            numberOfLines={3}
-            maxLength={200}
-          />
-        )}
-
-        {((sheetMode === "complete" && !user?.gender) || sheetMode === "edit") && (
-          <View style={st.fieldWrap}>
-            <Text style={st.fieldLabel}>Gender</Text>
-            <View style={st.toggleRow}>
-              {["Male", "Female", "Other"].map((opt) => {
-                const active = edit.gender === opt;
-                return (
-                  <Pressable
-                    key={opt}
-                    onPress={() => setEdit((p) => ({ ...p, gender: opt }))}
-                    style={[st.toggleBtn, active && st.toggleBtnActive]}
-                  >
-                    <Text style={[st.toggleText, active && st.toggleTextActive]}>{opt}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-        )}
-
-        <View style={st.fieldWrap}>
-          <Text style={st.fieldLabel}>Occupation Type</Text>
-          <View style={st.toggleRow}>
-            {["student", "working_professional"].map((opt) => {
-              const active = edit.occupationType === opt;
-              return (
-                <Pressable
-                  key={opt}
-                  onPress={() => setEdit((p) => ({ ...p, occupationType: opt }))}
-                  style={[st.toggleBtn, active && st.toggleBtnActive]}
-                >
-                  <MaterialIcons
-                    name={opt === "student" ? "school" : "work"}
-                    size={14}
-                    color={active ? T.white : T.soft}
-                  />
-                  <Text style={[st.toggleText, active && st.toggleTextActive]}>
-                    {opt === "student" ? "Student" : "Professional"}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-
-        {((sheetMode === "complete" && !user?.organization) || sheetMode === "edit") && (
-          <Field
-            label={edit.occupationType === "student" ? "School / College Name" : "Company / Organization"}
-            value={edit.organization}
-            onChangeText={(v) => setEdit((p) => ({ ...p, organization: v }))}
-            placeholder="Organization"
-          />
-        )}
-
-        {((sheetMode === "complete" && !user?.studyOrPost) || sheetMode === "edit") && (
-          <Field
-            label={edit.occupationType === "student" ? "Course / Studying For" : "Post / Role Name"}
-            value={edit.studyOrPost}
-            onChangeText={(v) => setEdit((p) => ({ ...p, studyOrPost: v }))}
-            placeholder={edit.occupationType === "student" ? "e.g. B.Tech Computer Science" : "e.g. Software Engineer"}
-          />
-        )}
-
-        {/* Hometown */}
-        {((sheetMode === "complete" && !user?.hometownCountry) || sheetMode === "edit") && (
-          <>
-            <View style={st.sectionDividerRow}>
-              <View style={st.sectionDividerLine} />
-              <Text style={st.sectionDividerText}>Hometown</Text>
-              <View style={st.sectionDividerLine} />
-            </View>
-
-            <SelectField label="Country" value={hCountryOther ? "Other" : edit.hometownCountry}
-              placeholder="Select country" onPress={() => openPicker("hcountry")} />
-            {hCountryOther && (
-              <Field label="Enter Country" value={edit.hometownCountry}
-                onChangeText={(v) => setEdit((p) => ({ ...p, hometownCountry: v }))} placeholder="Country name" />
-            )}
-            <SelectField label="State / Province" value={hStateOther ? "Other" : edit.hometownState}
-              placeholder="Select state" onPress={() => openPicker("hstate")} disabled={!edit.hometownCountry} />
-            {hStateOther && (
-              <Field label="Enter State" value={edit.hometownState}
-                onChangeText={(v) => setEdit((p) => ({ ...p, hometownState: v }))} placeholder="State name" />
-            )}
-            <SelectField label="City" value={hCityOther ? "Other" : edit.hometownCity}
-              placeholder="Select city" onPress={() => openPicker("hcity")} disabled={!edit.hometownState} />
-            {hCityOther && (
-              <Field label="Enter City" value={edit.hometownCity}
-                onChangeText={(v) => setEdit((p) => ({ ...p, hometownCity: v }))} placeholder="City name" />
-            )}
-          </>
-        )}
-
-        {/* Current Location */}
-        {((sheetMode === "complete" && !user?.country) || sheetMode === "edit") && (
-          <>
-            <View style={st.sectionDividerRow}>
-              <View style={st.sectionDividerLine} />
-              <Text style={st.sectionDividerText}>Current Location</Text>
-              <View style={st.sectionDividerLine} />
-            </View>
-
-            <SelectField label="Country" value={countryOther ? "Other" : edit.country}
-              placeholder="Select country" onPress={() => openPicker("country")} />
-            {countryOther && (
-              <Field label="Enter Country" value={edit.country}
-                onChangeText={(v) => setEdit((p) => ({ ...p, country: v }))} placeholder="Country name" />
-            )}
-            <SelectField label="State / Province" value={stateOther ? "Other" : edit.state}
-              placeholder="Select state" onPress={() => openPicker("state")} disabled={!edit.country} />
-            {stateOther && (
-              <Field label="Enter State" value={edit.state}
-                onChangeText={(v) => setEdit((p) => ({ ...p, state: v }))} placeholder="State name" />
-            )}
-            <SelectField label="City" value={cityOther ? "Other" : edit.city}
-              placeholder="Select city" onPress={() => openPicker("city")} disabled={!edit.state} />
-            {cityOther && (
-              <Field label="Enter City" value={edit.city}
-                onChangeText={(v) => setEdit((p) => ({ ...p, city: v }))} placeholder="City name" />
-            )}
-          </>
-        )}
-
+        {/* CTA */}
         <Pressable
-          onPress={saveProfile}
-          style={({ pressed }) => [st.primaryBtn, pressed && { opacity: 0.82 }]}
+          style={({ pressed }) => [s.editBtn, !isProfileComplete && s.editBtnFill, pressed && { opacity: 0.8 }]}
+          onPress={() => openEditSheet("personal")}
         >
-          <Text style={st.primaryBtnText}>
-            {busy === "profile" ? "Saving…" : "Save Changes"}
+          <Text style={[s.editBtnTxt, !isProfileComplete && { color: C.white }]}>
+            {isProfileComplete ? "Edit Profile" : "Complete Profile"}
           </Text>
-          <MaterialIcons name="arrow-forward" size={16} color={T.white} />
+          <MaterialIcons name="arrow-forward" size={14} color={isProfileComplete ? C.terra : C.white} />
+        </Pressable>
+      </View>
+
+      {/* ── Stats bar ── */}
+      <View style={s.statsBar}>
+        {[
+          { label: "Connections", count: activitySummary.connections, type: "connections", title: "Connections" },
+          { label: "Posts",       count: activitySummary.posts,       type: "posts",       title: "Posts"       },
+          { label: "Saved",       count: activitySummary.savedPosts,  type: "saved",       title: "Saved Posts" },
+        ].map((stat, i) => (
+          <React.Fragment key={stat.type}>
+            {i > 0 && <View style={s.statDiv} />}
+            <Pressable
+              style={({ pressed }) => [s.statCol, pressed && { backgroundColor: C.terraLight }]}
+              onPress={() => navActivity(stat.type, stat.title, stat.count)}
+            >
+              <Text style={s.statNum}>{stat.count}</Text>
+              <Text style={s.statLbl}>{stat.label}</Text>
+              <Text style={s.statArrow}>›</Text>
+            </Pressable>
+          </React.Fragment>
+        ))}
+      </View>
+
+      {/* ── Profile completeness card ── */}
+      {!isProfileComplete && (
+        <Pressable style={s.completenessCard} onPress={() => openEditSheet("personal")}>
+          <ProgressRing percent={completionPct} />
+          <View style={{ flex: 1, gap: 4 }}>
+            <Text style={s.completenessTitle}>
+              Your profile is <Text style={{ color: C.terra }}>{completionPct}% complete</Text>
+            </Text>
+            <Text style={s.completenessMissing} numberOfLines={2}>
+              Missing: {missingFields.slice(0, 3).map(k => FIELD_LABELS[k]).join(", ")}
+              {missingFields.length > 3 ? ` +${missingFields.length - 3} more` : ""}
+            </Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={20} color={C.terra} />
+        </Pressable>
+      )}
+
+      {/* ── My Profile ── */}
+      <GroupLabel text="MY PROFILE" />
+      <View style={s.navCard}>
+        <NavRow
+          iconName="person-outline" iconColor={C.catHousing} iconBg={C.catHousingBg}
+          label="Personal Info"
+          preview={[user?.fullName, user?.email].filter(Boolean).join(" · ") || "Tap to edit"}
+          onPress={() => openEditSheet("personal")}
+        />
+        <NavRow
+          iconName={user?.occupationType === "student" ? "school" : "work-outline"}
+          iconColor={C.catTravel} iconBg={C.catTravelBg}
+          label="Work & Education"
+          preview={occupationPreview}
+          onPress={() => openEditSheet("work")}
+        />
+        <NavRow
+          iconName="location-on" iconColor={C.catHangouts} iconBg={C.catHangoutsBg}
+          label="Location"
+          preview={locationPreview}
+          onPress={() => openEditSheet("location")}
+          isLast
+        />
+      </View>
+
+      {/* ── App & Support ── */}
+      <GroupLabel text="APP & SUPPORT" />
+      <View style={s.navCard}>
+        <NavRow
+          iconName="notifications-none" iconColor={C.catHelp} iconBg={C.catHelpBg}
+          label="Notifications" preview="Manage your alerts"
+          onPress={() => showSnackbar("Notification settings coming soon.", "info")}
+        />
+        <NavRow
+          iconName="help-outline" iconColor={C.catGeneral} iconBg={C.catGeneralBg}
+          label="Help & Support" preview="Get in touch with us"
+          onPress={() => showSnackbar("help@bandhuu.app", "info")}
+        />
+        <NavRow
+          iconName="info-outline" iconColor={C.inkMuted} iconBg={C.inputBg}
+          label="About Bandhuu" preview="Version 1.0.0"
+          onPress={() => {}}
+          isLast
+        />
+      </View>
+
+      {/* ── Account ── */}
+      <GroupLabel text="ACCOUNT" />
+      <View style={s.navCard}>
+        <NavRow
+          iconName="logout" iconColor={C.inkMid} iconBg={C.inputBg}
+          label="Sign Out" preview="You can always sign back in"
+          onPress={handleSignOut}
+        />
+        <NavRow
+          iconName="delete-forever" iconColor={C.coral} iconBg={C.coralBg}
+          label="Delete Account" preview="Permanently remove your data"
+          onPress={() => setDeleteOpen(true)}
+          danger isLast
+        />
+      </View>
+
+      {/* ── Footer ── */}
+      <View style={s.footer}>
+        {["Bandhuu · v1.0.0", "Privacy Policy", "Terms"].map((txt, i) => (
+          <React.Fragment key={txt}>
+            {i > 0 && <Text style={s.footerDot}>·</Text>}
+            <Text style={s.footerTxt}>{txt}</Text>
+          </React.Fragment>
+        ))}
+      </View>
+
+      {/* ══════════════════════════════════════════════════════════════
+          SHEET: Personal Info
+      ══════════════════════════════════════════════════════════════ */}
+      <Sheet
+        visible={editSheet === "personal"}
+        onClose={() => setEditSheet(null)}
+        title="Personal Info"
+        subtitle="This information is visible to your connections."
+      >
+        <Field label="Full Name" value={edit.fullName} onChangeText={v => setEdit(p => ({ ...p, fullName: v }))} placeholder="Your full name" />
+        <Field label="Email Address" value={edit.email} onChangeText={v => setEdit(p => ({ ...p, email: v }))} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" />
+        <Field
+          label="Bio"
+          value={edit.bio}
+          onChangeText={v => setEdit(p => ({ ...p, bio: v }))}
+          placeholder="Tell us a bit about yourself…"
+          multiline numberOfLines={3} maxLength={200}
+          style={{ minHeight: 90 }}
+        />
+        <View style={s.fieldWrap}>
+          <Text style={s.fieldLabel}>Gender</Text>
+          <ToggleRow
+            value={edit.gender}
+            onChange={v => setEdit(p => ({ ...p, gender: v }))}
+            options={[{ value: "Male", label: "Male" }, { value: "Female", label: "Female" }, { value: "Other", label: "Other" }]}
+          />
+        </View>
+        <Pressable
+          style={({ pressed }) => [s.saveBtn, pressed && { opacity: 0.82 }]}
+          onPress={saveSheet}
+        >
+          <Text style={s.saveBtnTxt}>{busy === "save" ? "Saving…" : "Save Changes"}</Text>
+          <MaterialIcons name="arrow-forward" size={16} color={C.white} />
         </Pressable>
       </Sheet>
 
-      {/* ── Delete Sheet ──────────────────────────────────────────────────── */}
+      {/* ══════════════════════════════════════════════════════════════
+          SHEET: Work & Education
+      ══════════════════════════════════════════════════════════════ */}
+      <Sheet
+        visible={editSheet === "work"}
+        onClose={() => setEditSheet(null)}
+        title="Work & Education"
+        subtitle="Shown on your public profile."
+      >
+        <View style={s.fieldWrap}>
+          <Text style={s.fieldLabel}>I am a…</Text>
+          <ToggleRow
+            value={edit.occupationType}
+            onChange={v => setEdit(p => ({ ...p, occupationType: v }))}
+            options={[
+              { value: "student", label: "Student", icon: "school" },
+              { value: "working_professional", label: "Professional", icon: "work" },
+            ]}
+          />
+        </View>
+        <Field
+          label={edit.occupationType === "student" ? "School / College" : "Company / Organization"}
+          value={edit.organization}
+          onChangeText={v => setEdit(p => ({ ...p, organization: v }))}
+          placeholder={edit.occupationType === "student" ? "e.g. IIIT Hyderabad" : "e.g. Infosys"}
+        />
+        <Field
+          label={edit.occupationType === "student" ? "Course / Studying For" : "Your Post / Role"}
+          value={edit.studyOrPost}
+          onChangeText={v => setEdit(p => ({ ...p, studyOrPost: v }))}
+          placeholder={edit.occupationType === "student" ? "e.g. B.Tech Computer Science" : "e.g. Software Engineer"}
+        />
+        <Pressable
+          style={({ pressed }) => [s.saveBtn, pressed && { opacity: 0.82 }]}
+          onPress={saveSheet}
+        >
+          <Text style={s.saveBtnTxt}>{busy === "save" ? "Saving…" : "Save Changes"}</Text>
+          <MaterialIcons name="arrow-forward" size={16} color={C.white} />
+        </Pressable>
+      </Sheet>
+
+      {/* ══════════════════════════════════════════════════════════════
+          SHEET: Location
+      ══════════════════════════════════════════════════════════════ */}
+      <Sheet
+        visible={editSheet === "location"}
+        onClose={() => setEditSheet(null)}
+        title="Location"
+        subtitle="Hometown helps us find your people. Current city shows where you are now."
+      >
+        <SheetDivider label="Hometown" />
+        <SelectField label="Country" value={hCountryOther ? "Other" : edit.hometownCountry} placeholder="Select country" onPress={() => openPicker("hcountry")} />
+        {hCountryOther && <Field label="Enter Country" value={edit.hometownCountry} onChangeText={v => setEdit(p => ({ ...p, hometownCountry: v }))} placeholder="Country name" />}
+        <SelectField label="State / Province" value={hStateOther ? "Other" : edit.hometownState} placeholder="Select state" onPress={() => openPicker("hstate")} disabled={!edit.hometownCountry} />
+        {hStateOther && <Field label="Enter State" value={edit.hometownState} onChangeText={v => setEdit(p => ({ ...p, hometownState: v }))} placeholder="State name" />}
+        <SelectField label="City" value={hCityOther ? "Other" : edit.hometownCity} placeholder="Select city" onPress={() => openPicker("hcity")} disabled={!edit.hometownState} />
+        {hCityOther && <Field label="Enter City" value={edit.hometownCity} onChangeText={v => setEdit(p => ({ ...p, hometownCity: v }))} placeholder="City name" />}
+
+        <SheetDivider label="Currently In" />
+        <SelectField label="Country" value={countryOther ? "Other" : edit.country} placeholder="Select country" onPress={() => openPicker("country")} />
+        {countryOther && <Field label="Enter Country" value={edit.country} onChangeText={v => setEdit(p => ({ ...p, country: v }))} placeholder="Country name" />}
+        <SelectField label="State / Province" value={stateOther ? "Other" : edit.state} placeholder="Select state" onPress={() => openPicker("state")} disabled={!edit.country} />
+        {stateOther && <Field label="Enter State" value={edit.state} onChangeText={v => setEdit(p => ({ ...p, state: v }))} placeholder="State name" />}
+        <SelectField label="City" value={cityOther ? "Other" : edit.city} placeholder="Select city" onPress={() => openPicker("city")} disabled={!edit.state} />
+        {cityOther && <Field label="Enter City" value={edit.city} onChangeText={v => setEdit(p => ({ ...p, city: v }))} placeholder="City name" />}
+
+        <Pressable
+          style={({ pressed }) => [s.saveBtn, pressed && { opacity: 0.82 }]}
+          onPress={saveSheet}
+        >
+          <Text style={s.saveBtnTxt}>{busy === "save" ? "Saving…" : "Save Changes"}</Text>
+          <MaterialIcons name="arrow-forward" size={16} color={C.white} />
+        </Pressable>
+      </Sheet>
+
+      {/* ══════════════════════════════════════════════════════════════
+          SHEET: Delete Account
+      ══════════════════════════════════════════════════════════════ */}
       <Sheet
         visible={deleteOpen}
         onClose={() => setDeleteOpen(false)}
         title="Delete Account"
         subtitle="This is irreversible after the 15-day grace period."
       >
-        <View style={st.dangerBox}>
-          <MaterialIcons name="warning-amber" size={20} color={T.coral} />
+        <View style={s.dangerBox}>
+          <MaterialIcons name="warning-amber" size={20} color={C.coral} />
           <View style={{ flex: 1, marginLeft: 12 }}>
-            <Text style={st.dangerBoxTitle}>Proceed with caution</Text>
-            <Text style={st.dangerBoxText}>
-              You'll lose all your connections, posts, and data permanently after the hold period.
-            </Text>
+            <Text style={s.dangerBoxTitle}>Proceed with caution</Text>
+            <Text style={s.dangerBoxTxt}>You'll lose all connections, posts, and data permanently after the grace period.</Text>
           </View>
         </View>
-
-        <View style={st.fieldWrap}>
-          <Text style={st.fieldLabel}>Confirm Password</Text>
-          <View style={st.pwdRow}>
+        <View style={s.fieldWrap}>
+          <Text style={s.fieldLabel}>Confirm Password</Text>
+          <View style={s.pwdRow}>
             <TextInput
-              value={deletePwd}
-              onChangeText={setDeletePwd}
-              placeholder="Enter your password"
-              placeholderTextColor={T.mute}
-              secureTextEntry={!deletePasswordVisible}
-              style={st.pwdInput}
+              value={deletePwd} onChangeText={setDeletePwd}
+              placeholder="Enter your password" placeholderTextColor={C.inkMuted}
+              secureTextEntry={!deletePwdVisible}
+              style={s.pwdInput}
             />
-            <Pressable onPress={() => setDeletePasswordVisible((v) => !v)} style={st.eyeBtn}>
-              <MaterialIcons
-                name={deletePasswordVisible ? "visibility-off" : "visibility"}
-                size={18}
-                color={T.mute}
-              />
+            <Pressable onPress={() => setDeletePwdVisible(v => !v)} style={s.eyeBtn}>
+              <MaterialIcons name={deletePwdVisible ? "visibility-off" : "visibility"} size={18} color={C.inkMuted} />
             </Pressable>
           </View>
         </View>
-
         <Pressable
+          style={({ pressed }) => [s.dangerBtn, pressed && { opacity: 0.82 }]}
           onPress={removeAccount}
-          style={({ pressed }) => [st.dangerBtn, pressed && { opacity: 0.82 }]}
         >
-          <MaterialIcons name="delete-forever" size={17} color={T.white} />
-          <Text style={st.dangerBtnText}>
-            {busy === "delete" ? "Processing…" : "Delete My Account"}
-          </Text>
+          <MaterialIcons name="delete-forever" size={17} color={C.white} />
+          <Text style={s.dangerBtnTxt}>{busy === "delete" ? "Processing…" : "Delete My Account"}</Text>
         </Pressable>
       </Sheet>
+
+      {/* Country / State / City picker */}
+      <PickerModal
+        visible={pickerOpen}
+        title={pickerTitle}
+        options={pickerOptions}
+        onClose={() => setPickerOpen(false)}
+        onSelect={onPick}
+      />
     </ScreenShell>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────
-const st = StyleSheet.create({
-  screenContent: {
-    paddingHorizontal: 0,
-    paddingBottom: 140,
-    gap: 16,
-    backgroundColor: T.bg,
-  },
-  masthead: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 22,
-    borderBottomWidth: 2,
-    borderBottomColor: T.ink,
-    marginBottom: 4,
-  },
-  liveChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderWidth: 1.5,
-    borderColor: T.coral,
-    borderRadius: 100,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    alignSelf: "flex-start",
-    marginBottom: 14,
-  },
-  liveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: T.coral,
-  },
-  liveLabel: {
-    fontSize: 9,
-    fontWeight: "900",
-    color: T.coral,
-    letterSpacing: 1.4,
-  },
-  heroTitle: {
-    fontSize: 46,
-    fontWeight: "900",
-    color: T.ink,
-    lineHeight: 52,
-    letterSpacing: -1.8,
-  },
-  heroTitleLight: {
-    fontWeight: "300",
-    fontStyle: "italic",
-    fontSize: 38,
-    letterSpacing: -1,
-  },
+// ─── STYLES ────────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  screenContent: { paddingHorizontal: 0, paddingBottom: 140, backgroundColor: C.bg },
 
-  // ── Hero Card ──────────────────────────────────────────────────────────
-  heroCard: {
-    backgroundColor: T.surface,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: T.line,
-    paddingTop: 0,
-    paddingBottom: 22,
+  // ── Profile header ──
+  header: {
+    backgroundColor: C.surface,
     paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 20,
     gap: 14,
-    overflow: "hidden",
-    marginHorizontal: 20,
-    shadowColor: T.ink,
-    shadowOffset: { width: 3, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 5,
-  },
-  heroTopRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: T.surfaceAlt,
     borderBottomWidth: 1,
-    borderBottomColor: T.line,
-    marginHorizontal: -20,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    marginBottom: 4,
+    borderBottomColor: C.border,
   },
+  headerRow: { flexDirection: "row", alignItems: "flex-start", gap: 14 },
 
-  // Member badge (gold)
-  memberBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: T.goldGhost,
-    borderWidth: 1.2,
-    borderColor: T.goldBorder,
-    paddingHorizontal: 11,
-    paddingVertical: 5,
-    borderRadius: 999,
-  },
-  memberDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: T.gold,
-  },
-  memberText: {
-    fontSize: 10,
-    fontWeight: "900",
-    color: T.goldDeep,
-    letterSpacing: 1,
-    textTransform: "uppercase",
-  },
-
-  // Edit button (blue)
-  heroEditBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: T.blue,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-  },
-  heroEditText: { fontSize: 11, fontWeight: "900", color: T.white, letterSpacing: 1 },
-
-  // Avatar + name horizontal layout
-  heroCenter: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 18,
-    paddingVertical: 4,
-  },
-  avatarOuter: { position: "relative" },
+  // avatar
+  avatarWrap: { position: "relative", flexShrink: 0 },
   avatarRing: {
-    width: 82,
-    height: 82,
-    borderRadius: 41,
-    padding: 3,
-    backgroundColor: T.bluePale,
-    borderWidth: 2.5,
-    borderColor: T.blue,
-  },
-  avatarImg: { width: "100%", height: "100%", borderRadius: 38 },
-  avatarFallback: {
-    flex: 1,
-    borderRadius: 38,
-    backgroundColor: T.blueGhost,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarInitials: {
-    fontSize: 26,
-    fontWeight: "900",
-    color: T.blue,
-    letterSpacing: -0.5,
-  },
-  cameraBtn: {
-    position: "absolute",
-    bottom: 1,
-    right: 1,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: T.gold,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: T.surface,
-  },
-
-  heroNameBlock: { flex: 1 },
-  heroName: {
-    fontSize: 22,
-    fontWeight: "900",
-    color: T.ink,
-    letterSpacing: -0.4,
-  },
-  heroHandle: {
-    fontSize: 13,
-    color: T.soft,
-    marginTop: 3,
-    fontWeight: "500",
-  },
-  goldAccentLine: {
-    width: 36,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: T.gold,
-    marginTop: 8,
-  },
-
-  // Chips
-  chipRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  statChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  statChipText: { fontSize: 11, fontWeight: "700" },
-
-  // ── Section Card ────────────────────────────────────────────────────────
-  sectionCard: {
-    backgroundColor: T.surface,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: T.line,
+    width: 80, height: 80, borderRadius: 40,
+    borderWidth: 2.5, borderColor: C.terra,
     overflow: "hidden",
+  },
+  avatarImg:     { width: "100%", height: "100%" },
+  avatarFallback:{ flex: 1, backgroundColor: C.terraLight, alignItems: "center", justifyContent: "center" },
+  avatarInitials:{ fontSize: 28, fontWeight: "900", color: C.terra },
+  cameraBtn: {
+    position: "absolute", bottom: 0, right: 0,
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: C.terra, alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: C.surface,
+  },
+
+  // identity
+  profileName: { fontFamily: SERIF, fontSize: 21, fontWeight: "700", color: C.ink, letterSpacing: -0.4, marginBottom: 2 },
+  profileHandle:{ fontSize: 12, fontWeight: "600", color: C.inkMuted, marginBottom: 5 },
+  journeyRow:   { flexDirection: "row", alignItems: "center", gap: 5, flexWrap: "wrap", marginBottom: 5 },
+  journeyDot:   { width: 5, height: 5, borderRadius: 3, backgroundColor: C.terra },
+  journeyFrom:  { fontSize: 12, fontWeight: "700", color: C.terra },
+  journeyTo:    { fontSize: 12, fontWeight: "500", color: C.inkMuted },
+  occChip:      {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: C.catHousingBg, paddingHorizontal: 8, paddingVertical: 4,
+    borderRadius: 20, alignSelf: "flex-start",
+  },
+  occChipTxt:   { fontSize: 10, fontWeight: "600", color: C.catHousing },
+
+  bio: { fontSize: 13, color: C.inkMid, lineHeight: 20, fontStyle: "italic" },
+
+  editBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    paddingVertical: 11, borderRadius: 22,
+    borderWidth: 1.5, borderColor: C.terra,
+  },
+  editBtnFill: { backgroundColor: C.terra },
+  editBtnTxt: { fontSize: 13, fontWeight: "800", color: C.terra, letterSpacing: 0.2 },
+
+  // ── Stats bar ──
+  statsBar: {
+    flexDirection: "row",
+    backgroundColor: C.surface,
+    borderBottomWidth: 1, borderBottomColor: C.border,
+  },
+  statCol:    { flex: 1, alignItems: "center", gap: 4, paddingVertical: 18, borderRadius: 0 },
+  statDiv:    { width: 1, backgroundColor: C.divider, marginVertical: 8 },
+  statNum:    { fontSize: 26, fontWeight: "900", color: C.terra, letterSpacing: -0.5 },
+  statLbl:   { fontSize: 9, fontWeight: "800", color: C.inkMuted, letterSpacing: 1.2, textTransform: "uppercase" },
+  statArrow: { fontSize: 13, fontWeight: "900", color: C.terra, lineHeight: 14, marginTop: 1 },
+
+  // ── Completeness card ──
+  completenessCard: {
+    flexDirection: "row", alignItems: "center", gap: 14,
+    backgroundColor: C.terraLight,
+    marginHorizontal: 20, marginTop: 20,
+    borderRadius: 16, padding: 16,
+    borderWidth: 1, borderColor: C.terra + "30",
+  },
+  completenessTitle:   { fontSize: 13, fontWeight: "700", color: C.ink, lineHeight: 19 },
+  completenessMissing: { fontSize: 11, color: C.inkMuted, fontWeight: "500", lineHeight: 16 },
+
+  // ── Group label ──
+  groupLabel: {
+    fontSize: 10, fontWeight: "800", color: C.inkMuted,
+    letterSpacing: 1.5, marginTop: 24, marginBottom: 8,
+    paddingHorizontal: 20,
+  },
+
+  // ── Nav card ──
+  navCard: {
+    backgroundColor: C.surface,
     marginHorizontal: 20,
-    shadowColor: T.ink,
-    shadowOffset: { width: 2, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  sectionHead: {
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: T.lineLight,
-    backgroundColor: T.surfaceAlt,
-  },
-  sectionHeadPressable: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  sectionHeadLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    flexShrink: 1,
-  },
-  sectionTitle: {
-    fontSize: 12,
-    fontWeight: "900",
-    color: T.ink,
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-  },
-  sectionBadge: {
-    backgroundColor: T.goldGhost,
+    borderRadius: 16,
+    overflow: "hidden",
     borderWidth: 1,
-    borderColor: T.goldBorder,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 999,
+    borderColor: C.border,
+    shadowColor: C.ink,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  sectionBadgeText: {
-    fontSize: 9,
-    fontWeight: "900",
-    color: T.goldDeep,
-    letterSpacing: 1,
-    textTransform: "uppercase",
+  navRow: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    paddingHorizontal: 16, paddingVertical: 14,
+    backgroundColor: C.surface,
   },
-  sectionPreviewText: {
-    fontSize: 13,
-    color: T.soft,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    fontWeight: "600",
+  navRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.divider },
+  navIconWrap: {
+    width: 38, height: 38, borderRadius: 11,
+    alignItems: "center", justifyContent: "center", flexShrink: 0,
   },
+  navContent: { flex: 1, gap: 2 },
+  navLabel:   { fontSize: 14, fontWeight: "700", color: C.ink },
+  navPreview: { fontSize: 11, fontWeight: "500", color: C.inkMuted },
 
-  // ── Info Row ────────────────────────────────────────────────────────────
-  infoRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    gap: 12,
+  // ── Footer ──
+  footer: {
+    flexDirection: "row", justifyContent: "center", alignItems: "center",
+    gap: 6, paddingVertical: 20, paddingHorizontal: 20,
   },
-  infoRowBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: T.lineLight,
-  },
-  infoIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: T.bluePale,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 1,
-    borderWidth: 1,
-    borderColor: T.blueLight,
-  },
-  infoBody: { flex: 1 },
-  infoLabel: {
-    fontSize: 9,
-    fontWeight: "900",
-    color: T.mute,
-    textTransform: "uppercase",
-    letterSpacing: 1.2,
-    marginBottom: 3,
-  },
-  infoValue: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: T.ink,
-    lineHeight: 21,
-  },
+  footerTxt: { fontSize: 11, color: C.inkMuted },
+  footerDot: { fontSize: 11, color: C.border },
 
-  // ── Action Row ──────────────────────────────────────────────────────────
-  actionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 18,
-    paddingVertical: 13,
-    gap: 13,
-  },
-  actionRowBorder: { borderBottomWidth: 1, borderBottomColor: T.lineLight },
-  actionIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: T.bluePale,
-    borderWidth: 1,
-    borderColor: T.blueLight,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  actionIconDanger: {
-    backgroundColor: T.coralPale,
-    borderColor: "#FCCDD3",
-  },
-  actionLabel: { fontSize: 14, fontWeight: "700", color: T.ink },
-  actionSublabel: { fontSize: 12, color: T.mute, marginTop: 1 },
-  activityMenuWrap: {
-    paddingHorizontal: 14,
-    paddingBottom: 8,
-  },
-  activityMenuRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 14,
-  },
-  activityMenuBorder: {
-    borderTopWidth: 1,
-    borderTopColor: T.lineLight,
-  },
-  activityMenuLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    flex: 1,
-  },
-  activityMenuIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: T.bluePale,
-    borderWidth: 1,
-    borderColor: T.blueLight,
-  },
-  activityMenuTitle: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: T.ink,
-  },
-  activityMenuSub: {
-    marginTop: 2,
-    fontSize: 11,
-    color: T.soft,
-    fontWeight: "600",
-  },
-  activityCountWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  activityCountText: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: T.ink,
-    letterSpacing: -0.3,
-  },
-
-  // ── App Info ────────────────────────────────────────────────────────────
-  appInfo: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 6,
-    paddingVertical: 2,
-    paddingBottom: 24,
-    marginHorizontal: 20,
-  },
-  appInfoText: { fontSize: 11, color: T.mute },
-  appInfoDot: { fontSize: 11, color: T.line },
-
-  // ── Backdrop ────────────────────────────────────────────────────────────
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(30,20,10,0.45)",
-  },
-
-  // ── Sheet ───────────────────────────────────────────────────────────────
+  // ── Backdrop + Sheet ──
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(28,20,16,0.5)" },
   sheetOuter: { flex: 1, justifyContent: "flex-end" },
   sheetInner: {
-    maxHeight: "90%",
-    backgroundColor: T.surface,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    shadowColor: "#3A8FB5",
-    shadowOffset: { width: 0, height: -6 },
-    shadowOpacity: 0.12,
-    shadowRadius: 20,
-    elevation: 20,
+    maxHeight: "92%",
+    backgroundColor: C.surface,
+    borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    paddingHorizontal: 20, paddingTop: 12,
+    shadowColor: C.ink, shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.08, shadowRadius: 16, elevation: 16,
   },
-  sheetHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: T.bluePale,
-    alignSelf: "center",
-    marginBottom: 16,
+  sheetHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: "center", marginBottom: 18 },
+  sheetHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24 },
+  sheetTitle:  { fontSize: 20, fontWeight: "800", color: C.ink, letterSpacing: -0.3, fontFamily: SERIF },
+  sheetSub:    { fontSize: 12, color: C.inkMuted, marginTop: 4, lineHeight: 18, maxWidth: 270 },
+  sheetCloseBtn: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: C.inputBg, alignItems: "center", justifyContent: "center",
   },
-  sheetHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    marginBottom: 20,
-  },
-  sheetTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: T.ink,
-    letterSpacing: -0.3,
-  },
-  sheetSub: {
-    fontSize: 13,
-    color: T.soft,
-    marginTop: 4,
-    lineHeight: 19,
-    maxWidth: 270,
-  },
-  closeBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: T.blueGhost,
-    borderWidth: 1,
-    borderColor: T.bluePale,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  sheetDivRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16, marginTop: 12 },
+  sheetDivLine:{ flex: 1, height: 1, backgroundColor: C.border },
+  sheetDivTxt: { fontSize: 10, fontWeight: "800", color: C.inkMuted, textTransform: "uppercase", letterSpacing: 1.2 },
 
-  // Section divider inside sheet
-  sectionDividerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 16,
-    marginTop: 8,
-  },
-  sectionDividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: T.line,
-  },
-  sectionDividerText: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: T.soft,
-    textTransform: "uppercase",
-    letterSpacing: 0.9,
-  },
-
-  // ── Picker ──────────────────────────────────────────────────────────────
-  pickerOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(30,20,10,0.45)",
-    justifyContent: "center",
-    padding: 20,
-  },
-  pickerBox: {
-    maxHeight: "70%",
-    backgroundColor: T.surface,
-    borderRadius: 22,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: T.line,
-  },
-  pickRow: {
-    paddingVertical: 13,
-    paddingHorizontal: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: T.lineLight,
-    borderRadius: 8,
-  },
-  pickText: { fontSize: 15, color: T.ink, fontWeight: "500" },
-  otherBadge: {
-    alignSelf: "flex-start",
-    backgroundColor: T.bluePale,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: T.blueLight,
-  },
-  otherBadgeText: { fontSize: 13, fontWeight: "800", color: T.blue },
-
-  // ── Field ───────────────────────────────────────────────────────────────
+  // ── Field ──
   fieldWrap: { marginBottom: 16 },
-  fieldLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: T.soft,
-    textTransform: "uppercase",
-    letterSpacing: 0.9,
-    marginBottom: 8,
-  },
+  fieldLabel:{ fontSize: 9, fontWeight: "900", color: C.inkMuted, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: 8 },
   fieldInput: {
-    minHeight: 50,
-    borderRadius: 13,
-    backgroundColor: T.surfaceAlt,
-    borderWidth: 1.5,
-    borderColor: T.line,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-    color: T.ink,
-    fontWeight: "500",
-    textAlignVertical: "top",
+    minHeight: 50, borderRadius: 12,
+    backgroundColor: C.inputBg, borderWidth: 1, borderColor: C.border,
+    paddingHorizontal: 14, paddingVertical: 12,
+    fontSize: 14, color: C.ink, fontWeight: "500", textAlignVertical: "top",
   },
-  fieldInputFocused: {
-    borderColor: T.blue,
-    backgroundColor: T.blueGhost,
-  },
-  fieldSelect: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingRight: 10,
-  },
-  fieldSelectText: { fontSize: 15, color: T.ink, fontWeight: "500", flex: 1 },
-  fieldDisabled: { opacity: 0.4 },
+  fieldInputFocused: { borderColor: C.terra, backgroundColor: C.white },
+  fieldSelect:    { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingRight: 10 },
+  fieldSelectTxt: { fontSize: 14, color: C.ink, fontWeight: "500", flex: 1 },
 
-  // ── Toggle ──────────────────────────────────────────────────────────────
+  // ── Toggle ──
   toggleRow: { flexDirection: "row", gap: 10 },
   toggleBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: T.line,
-    backgroundColor: T.surfaceAlt,
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5,
+    paddingVertical: 11, borderRadius: 12, borderWidth: 1.5, borderColor: C.border, backgroundColor: C.inputBg,
   },
-  toggleBtnActive: {
-    backgroundColor: T.blue,
-    borderColor: T.blue,
-  },
-  toggleText: { fontSize: 13, fontWeight: "700", color: T.soft },
-  toggleTextActive: { color: T.white },
+  toggleBtnActive: { backgroundColor: C.terra, borderColor: C.terra },
+  toggleBtnTxt:    { fontSize: 12, fontWeight: "700", color: C.inkMuted },
+  toggleBtnTxtActive: { color: C.white },
 
-  // ── Primary Button (solid, no gradient) ─────────────────────────────────
-  primaryBtn: {
-    minHeight: 52,
-    borderRadius: 14,
-    backgroundColor: T.blue,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
+  // ── Save button ──
+  saveBtn: {
+    minHeight: 52, borderRadius: 26, backgroundColor: C.terra,
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
     marginTop: 8,
-    shadowColor: T.blue,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    elevation: 4,
+    shadowColor: C.terra, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 10, elevation: 4,
   },
-  primaryBtnText: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: T.white,
-    letterSpacing: 0.2,
-  },
+  saveBtnTxt: { fontSize: 15, fontWeight: "800", color: C.white, letterSpacing: 0.3 },
 
-  // ── Danger Box ──────────────────────────────────────────────────────────
+  // ── Picker ──
+  pickerOverlay: { flex: 1, backgroundColor: "rgba(28,20,16,0.5)", justifyContent: "center", padding: 20 },
+  pickerBox: {
+    maxHeight: "70%", backgroundColor: C.surface,
+    borderRadius: 22, padding: 18,
+    borderWidth: 1, borderColor: C.border,
+  },
+  pickRow: {
+    paddingVertical: 13, paddingHorizontal: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.divider, borderRadius: 8,
+  },
+  pickTxt:      { fontSize: 15, color: C.ink, fontWeight: "500" },
+  otherBadge:   { alignSelf: "flex-start", backgroundColor: C.terraLight, paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, borderWidth: 1, borderColor: C.terra + "40" },
+  otherBadgeTxt:{ fontSize: 13, fontWeight: "700", color: C.terra },
+
+  // ── Danger ──
   dangerBox: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    backgroundColor: T.coralPale,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#F0CCCC",
-    padding: 14,
-    marginBottom: 20,
-    gap: 4,
+    flexDirection: "row", alignItems: "flex-start",
+    backgroundColor: C.coralBg, borderRadius: 14,
+    borderWidth: 1, borderColor: "#F0CCCC",
+    padding: 14, marginBottom: 20, gap: 4,
   },
-  dangerBoxTitle: { fontSize: 14, fontWeight: "800", color: T.coral, marginBottom: 4 },
-  dangerBoxText: { fontSize: 13, lineHeight: 19, color: "#8B3333" },
-
-  // ── Password Row ────────────────────────────────────────────────────────
+  dangerBoxTitle: { fontSize: 14, fontWeight: "800", color: C.coral, marginBottom: 4 },
+  dangerBoxTxt:   { fontSize: 13, lineHeight: 19, color: "#8B3333" },
   pwdRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    minHeight: 50,
-    borderRadius: 13,
-    backgroundColor: T.surfaceAlt,
-    borderWidth: 1.5,
-    borderColor: T.line,
-    paddingLeft: 14,
-    paddingRight: 8,
+    flexDirection: "row", alignItems: "center", minHeight: 50,
+    borderRadius: 12, backgroundColor: C.inputBg, borderWidth: 1, borderColor: C.border,
+    paddingLeft: 14, paddingRight: 8,
   },
-  pwdInput: {
-    flex: 1,
-    fontSize: 15,
-    color: T.ink,
-    fontWeight: "500",
-    paddingVertical: 14,
-  },
-  eyeBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  // ── Danger Button ───────────────────────────────────────────────────────
+  pwdInput:  { flex: 1, fontSize: 14, color: C.ink, fontWeight: "500", paddingVertical: 14 },
+  eyeBtn:    { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   dangerBtn: {
-    minHeight: 52,
-    borderRadius: 14,
-    backgroundColor: T.coral,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
+    minHeight: 52, borderRadius: 14, backgroundColor: C.coral,
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
     marginTop: 8,
-    shadowColor: T.coral,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    elevation: 4,
+    shadowColor: C.coral, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 10, elevation: 4,
   },
-  dangerBtnText: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: T.white,
-    letterSpacing: 0.2,
-  },
-
-  divider: {
-    height: 1,
-    backgroundColor: T.lineLight,
-    marginHorizontal: 18,
-  },
+  dangerBtnTxt: { fontSize: 15, fontWeight: "800", color: C.white },
 });
