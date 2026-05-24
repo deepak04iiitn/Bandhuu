@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   View, Text, StyleSheet, Image, TextInput, ScrollView,
-  Pressable, Dimensions, Alert, ActivityIndicator, Platform, Animated,
+  Pressable, Dimensions, ActivityIndicator, Platform, Animated, PanResponder,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
@@ -10,37 +10,34 @@ import axios from "axios";
 import { useAuth } from "../../store/AuthContext";
 import { useSnackbar } from "../../store/SnackbarContext";
 import { MaterialIcons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { ScreenShell } from "./TabShared";
 import { createMeetupWithImage } from "../../services/meetups/meetupService";
 
-const { width, height: SCREEN_H } = Dimensions.get("window");
+const { width } = Dimensions.get("window");
 const API_BASE_URL = "http://192.168.31.65:5000/api";
 
 // ─── TOKENS ────────────────────────────────────────────────────────────────────
 const C = {
-  bg:           "#F5F0EB",
-  headerTop:    "#EAE0D5",
-  surface:      "#FEFCFA",
-  inputBg:      "#F2EDE6",
-  terra:        "#C84B0C",
-  terraDeep:    "#A83A08",
-  terraLight:   "#FDF0EA",
-  green:        "#1A6B4A",
-  ink:          "#1C1410",
-  inkMid:       "#5C4F47",
-  inkMuted:     "#9C8D84",
-  border:       "#E8E0D8",
-  divider:      "#F0EAE3",
-  white:        "#FFFFFF",
-  amber:        "#B45309",
-  amberLight:   "#FEF3C7",
-  amberBorder:  "#FCD34D",
-  catGeneral:   "#D4820A", catGeneralBg:  "#FEF7E8",
-  catHousing:   "#3B6CA8", catHousingBg:  "#EEF3FC",
-  catTravel:    "#1A7A5E", catTravelBg:   "#E8F5F1",
-  catHangouts:  "#B83055", catHangoutsBg: "#FDEEF3",
-  catHelp:      "#7040B8", catHelpBg:     "#F3EEFE",
+  bg:          "#F5F0EB",
+  surface:     "#FEFCFA",
+  inputBg:     "#EDE8E0",
+  terra:       "#C84B0C",
+  terraLight:  "#FDF0EA",
+  green:       "#1A6B4A",
+  ink:         "#1C1410",
+  inkMid:      "#5C4F47",
+  inkMuted:    "#9C8D84",
+  border:      "#E8E0D8",
+  divider:     "#EEEAE3",
+  white:       "#FFFFFF",
+  amber:       "#B45309",
+  amberLight:  "#FEF3C7",
+  amberBorder: "#FCD34D",
+  catGeneral:  "#D4820A", catGeneralBg:  "#FEF7E8",
+  catHousing:  "#3B6CA8", catHousingBg:  "#EEF3FC",
+  catTravel:   "#1A7A5E", catTravelBg:   "#E8F5F1",
+  catHangouts: "#B83055", catHangoutsBg: "#FDEEF3",
+  catHelp:     "#7040B8", catHelpBg:     "#F3EEFE",
 };
 
 const SERIF = Platform.select({ ios: "Georgia", android: "serif", default: "serif" });
@@ -54,110 +51,108 @@ const CATEGORIES = [
   { name: "Help / Questions",   icon: "help",     color: C.catHelp,     bg: C.catHelpBg     },
 ];
 
-const charCountColor = (len, max) => {
+const charColor = (len, max) => {
   if (len >= max * 0.9) return C.terra;
   if (len >= max * 0.7) return C.amber;
   return C.inkMuted;
 };
 
-const inputStyle = (focused) => focused
-  ? { backgroundColor: C.white, borderWidth: 1.5, borderColor: C.terra }
-  : { backgroundColor: C.inputBg, borderWidth: 1, borderColor: C.border };
+const fmtDate = (d) => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+const fmtTime = (d) => d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 
-const fmtDate = (d) =>
-  d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-const fmtTime = (d) =>
-  d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-
-// ─── SECTION LABEL ─────────────────────────────────────────────────────────────
-function SectionLabel({ label, first = false }) {
-  return (
-    <View style={[s.sectionWrap, !first && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.border, paddingTop: 20, marginTop: 8 }]}>
-      <Text style={s.sectionText}>{label}</Text>
-    </View>
-  );
-}
-
-// ─── MAIN COMPONENT ────────────────────────────────────────────────────────────
+// ─── MAIN ──────────────────────────────────────────────────────────────────────
 export default function PostTab({ navigation }) {
-  const { token, user } = useAuth();
-  const { showSnackbar }  = useSnackbar();
-  const insets            = useSafeAreaInsets();
+  const { token, user }  = useAuth();
+  const { showSnackbar } = useSnackbar();
+  const insets           = useSafeAreaInsets();
 
-  // ── mode ──────────────────────────────────────────────────────────────────
   const [mode, setMode] = useState("Post");
 
-  // ── post form ─────────────────────────────────────────────────────────────
-  const [category, setCategory]       = useState("General");
-  const [title, setTitle]             = useState("");
-  const [details, setDetails]         = useState("");
-  const [image, setImage]             = useState(null);
-  const [titleFocused, setTF]         = useState(false);
-  const [detailsFocused, setDF]       = useState(false);
-  const [showPostSuccess, setPostOk]  = useState(false);
+  // post
+  const [category, setCategory]      = useState("General");
+  const [title, setTitle]            = useState("");
+  const [details, setDetails]        = useState("");
+  const [image, setImage]            = useState(null);
+  const [showPostSuccess, setPostOk] = useState(false);
 
-  // ── meetup form ───────────────────────────────────────────────────────────
-  const [meetupTitle, setMT]              = useState("");
-  const [meetupDetails, setMD]            = useState("");
-  const [meetupMaxMembers, setMMM]        = useState(10);
-  const [meetupHometown, setMH]           = useState("");
-  const [meetupLocation, setML]           = useState("");
-  const [meetupVenue, setMV]             = useState("");
-  const [meetupDate, setMDate]            = useState(new Date());
-  const [meetupTime, setMTime]            = useState(new Date());
-  const [meetupImage, setMImg]            = useState(null);
-  const [showDatePicker, setShowDate]     = useState(false);
-  const [showTimePicker, setShowTime]     = useState(false);
-  const [meetupSuccess, setMeetupOk]      = useState(false);
-  const [mtFocused, setMTF]               = useState(false);
-  const [mdFocused, setMDF]               = useState(false);
-  const [venueFocused, setVF]             = useState(false);
-  const [locationFocused, setLF]          = useState(false);
-  const [hometownFocused, setHF]          = useState(false);
+  // meetup
+  const [mTitle, setMT]          = useState("");
+  const [mDetails, setMD]        = useState("");
+  const [mMembers, setMM]        = useState(10);
+  const [mHometown, setMH]       = useState("");
+  const [mLocation, setML]       = useState("");
+  const [mVenue, setMV]          = useState("");
+  const [mDate, setMDate]        = useState(new Date());
+  const [mTime, setMTime]        = useState(new Date());
+  const [mImage, setMImg]        = useState(null);
+  const [showDatePicker, setSDP] = useState(false);
+  const [showTimePicker, setSTP] = useState(false);
+  const [meetupOk, setMeetupOk]  = useState(false);
 
-  // ── shared ────────────────────────────────────────────────────────────────
-  const [isSubmitting, setSubmitting]     = useState(false);
-  const [showProfileBanner, setProfileBanner] = useState(false);
+  // shared
+  const [submitting, setSubmitting]       = useState(false);
+  const [profileBanner, setProfileBanner] = useState(false);
 
-  // ── animations ────────────────────────────────────────────────────────────
   const successFade  = useRef(new Animated.Value(0)).current;
   const stepperScale = useRef(new Animated.Value(1)).current;
 
-  // auto-fill from profile
+  // ── pager ─────────────────────────────────────────────────────────────────
+  const modeRef   = useRef("Post");
+  const translateX = useRef(new Animated.Value(0)).current;
+
+  const snapTo = (toValue) => {
+    Animated.spring(translateX, {
+      toValue, useNativeDriver: true,
+      tension: 80, friction: 12, overshootClamping: true,
+    }).start();
+  };
+
+  const swipePan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, { dx, dy }) =>
+        Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5,
+      onPanResponderMove: (_, { dx }) => {
+        const base = modeRef.current === "Post" ? 0 : -width;
+        const next = base + dx;
+        if (next > 0)        translateX.setValue(next * 0.15);
+        else if (next < -width) translateX.setValue(-width + (next + width) * 0.15);
+        else                    translateX.setValue(next);
+      },
+      onPanResponderRelease: (_, { dx, vx }) => {
+        const cur = modeRef.current;
+        let next = cur;
+        if (cur === "Post"   && (dx < -(width * 0.25) || vx < -0.4)) next = "Meetup";
+        if (cur === "Meetup" && (dx > width * 0.25   || vx > 0.4))  next = "Post";
+        if (next !== cur) { modeRef.current = next; setMode(next); }
+        snapTo(next === "Meetup" ? -width : 0);
+      },
+      onPanResponderTerminate: () => snapTo(modeRef.current === "Post" ? 0 : -width),
+    })
+  ).current;
+
   useEffect(() => {
-    if (user?.hometown  && !meetupHometown) setMH(user.hometown);
-    if (user?.location  && !meetupLocation) setML(user.location.split(",")[0].trim());
+    if (user?.hometown  && !mHometown) setMH(user.hometown);
+    if (user?.location  && !mLocation) setML(user.location.split(",")[0].trim());
   }, [user?._id]);
 
-  // ── mode switch ───────────────────────────────────────────────────────────
-  const handleModeSwitch = (next) => {
-    if (mode === next) return;
-    const dirty = mode === "Post" ? (title.trim() || details.trim()) : (meetupTitle.trim() || meetupDetails.trim());
-    const doSwitch = () => {
-      setMode(next);
-      setProfileBanner(false);
-      if (next === "Post") resetMeetup();
-      else resetPost();
-    };
-    dirty
-      ? Alert.alert(`Switch to ${next === "Post" ? "Share a Post" : "Plan a Meetup"}?`, "Your draft will be cleared.", [
-          { text: "Cancel", style: "cancel" },
-          { text: "Switch", style: "destructive", onPress: doSwitch },
-        ])
-      : doSwitch();
+  // ── mode switch (tap) ─────────────────────────────────────────────────────
+  // Drafts are preserved — both forms are always rendered side-by-side.
+  const switchMode = (next) => {
+    if (modeRef.current === next) return;
+    modeRef.current = next;
+    setMode(next);
+    setProfileBanner(false);
+    snapTo(next === "Meetup" ? -width : 0);
   };
 
-  const resetPost = () => {
-    setTitle(""); setDetails(""); setImage(null); setCategory("General"); setPostOk(false);
-  };
+  const resetPost   = () => { setTitle(""); setDetails(""); setImage(null); setCategory("General"); setPostOk(false); };
   const resetMeetup = () => {
-    setMT(""); setMD(""); setMMM(10);
-    setMH(user?.hometown || "");
-    setML(user?.location?.split(",")[0]?.trim() || "");
+    setMT(""); setMD(""); setMM(10);
+    setMH(user?.hometown || ""); setML(user?.location?.split(",")[0]?.trim() || "");
     setMV(""); setMDate(new Date()); setMTime(new Date()); setMImg(null); setMeetupOk(false);
   };
 
-  // ── image picker ──────────────────────────────────────────────────────────
+  // ── image ────────────────────────────────────────────────────────────────
   const pickImage = async (setter) => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") { showSnackbar("Please allow access to your photos.", "info"); return; }
@@ -167,37 +162,30 @@ export default function PostTab({ navigation }) {
     if (!result.canceled) {
       const asset = result.assets[0];
       if (asset.fileSize && asset.fileSize > 2 * 1024 * 1024) {
-        showSnackbar("Image too large. Please choose one under 2 MB.", "error"); return;
+        showSnackbar("Image too large. Max 2 MB.", "error"); return;
       }
       setter(asset);
     }
   };
 
-  // ── profile check ─────────────────────────────────────────────────────────
   const isProfileComplete = !!(user?.hometownCountry && user?.country && user?.organization && user?.bio);
 
-  const triggerProfileBanner = () => setProfileBanner(true);
-
-  // ── stepper animation ────────────────────────────────────────────────────
   const bumpStepper = () => {
     Animated.sequence([
-      Animated.timing(stepperScale, { toValue: 1.25, duration: 80, useNativeDriver: true }),
+      Animated.timing(stepperScale, { toValue: 1.3, duration: 70, useNativeDriver: true }),
       Animated.spring(stepperScale, { toValue: 1, tension: 300, friction: 8, useNativeDriver: true }),
     ]).start();
   };
 
-  // ── fade in success ───────────────────────────────────────────────────────
-  const fadeInSuccess = () => {
+  const fadeSuccess = () => {
     successFade.setValue(0);
-    Animated.timing(successFade, { toValue: 1, duration: 380, useNativeDriver: true }).start();
+    Animated.timing(successFade, { toValue: 1, duration: 350, useNativeDriver: true }).start();
   };
 
-  // ── submit: post ──────────────────────────────────────────────────────────
+  // ── submit post ──────────────────────────────────────────────────────────
   const handleSharePost = async () => {
-    if (!title.trim() || !details.trim()) {
-      showSnackbar("Please add a title and some details.", "info"); return;
-    }
-    if (!isProfileComplete) { triggerProfileBanner(); return; }
+    if (!title.trim() || !details.trim()) { showSnackbar("Add a title and details first.", "info"); return; }
+    if (!isProfileComplete) { setProfileBanner(true); return; }
     setSubmitting(true);
     try {
       const fd = new FormData();
@@ -205,72 +193,46 @@ export default function PostTab({ navigation }) {
       fd.append("title", title.trim());
       fd.append("details", details.trim());
       if (image) {
-        const uri = image.uri;
-        const fn  = uri.split("/").pop();
-        const m   = /\.(\w+)$/.exec(fn);
+        const uri = image.uri; const fn = uri.split("/").pop(); const m = /\.(\w+)$/.exec(fn);
         fd.append("postImage", { uri, name: fn, type: m ? `image/${m[1]}` : "image" });
       }
       await axios.post(`${API_BASE_URL}/posts`, fd, {
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "multipart/form-data" },
       });
-      resetPost();
-      setPostOk(true);
-      fadeInSuccess();
-    } catch (err) {
-      showSnackbar(err.response?.data?.message || "Something went wrong.", "error");
-    } finally {
-      setSubmitting(false);
-    }
+      resetPost(); setPostOk(true); fadeSuccess();
+    } catch (e) {
+      showSnackbar(e.response?.data?.message || "Something went wrong.", "error");
+    } finally { setSubmitting(false); }
   };
 
-  // ── submit: meetup ────────────────────────────────────────────────────────
+  // ── submit meetup ────────────────────────────────────────────────────────
   const handleCreateMeetup = async () => {
-    if (!meetupTitle.trim() || !meetupDetails.trim()) {
-      showSnackbar("Please add a title and description.", "info"); return;
-    }
-    if (meetupMaxMembers < 2) {
-      showSnackbar("Max members must be at least 2.", "info"); return;
-    }
-    if (!meetupVenue.trim() || !meetupLocation.trim()) {
-      showSnackbar("Please add a venue and location.", "info"); return;
-    }
-    if (!isProfileComplete) { triggerProfileBanner(); return; }
+    if (!mTitle.trim() || !mDetails.trim()) { showSnackbar("Add a title and description.", "info"); return; }
+    if (mMembers < 2) { showSnackbar("At least 2 members required.", "info"); return; }
+    if (!mVenue.trim() || !mLocation.trim()) { showSnackbar("Add venue and location.", "info"); return; }
+    if (!isProfileComplete) { setProfileBanner(true); return; }
     setSubmitting(true);
     try {
       const fd = new FormData();
-      fd.append("title", meetupTitle.trim());
-      fd.append("details", meetupDetails.trim());
-      fd.append("maxMembers", String(meetupMaxMembers));
-      fd.append("hometown", meetupHometown.trim());
-      fd.append("meetupLocation", meetupLocation.trim());
-      fd.append("venue", meetupVenue.trim());
-      fd.append("date", meetupDate.toISOString());
-      fd.append("time", `${meetupTime.getHours().toString().padStart(2,"0")}:${meetupTime.getMinutes().toString().padStart(2,"0")}`);
-      if (meetupImage) {
-        const uri = meetupImage.uri;
-        const fn  = uri.split("/").pop();
-        const m   = /\.(\w+)$/.exec(fn);
+      fd.append("title", mTitle.trim()); fd.append("details", mDetails.trim());
+      fd.append("maxMembers", String(mMembers)); fd.append("hometown", mHometown.trim());
+      fd.append("meetupLocation", mLocation.trim()); fd.append("venue", mVenue.trim());
+      fd.append("date", mDate.toISOString());
+      fd.append("time", `${mTime.getHours().toString().padStart(2,"0")}:${mTime.getMinutes().toString().padStart(2,"0")}`);
+      if (mImage) {
+        const uri = mImage.uri; const fn = uri.split("/").pop(); const m = /\.(\w+)$/.exec(fn);
         fd.append("meetupImage", { uri, name: fn, type: m ? `image/${m[1]}` : "image/jpeg" });
       }
       const res = await createMeetupWithImage(fd);
       if (!res.success) { showSnackbar(res.message || "Failed to create meetup.", "error"); return; }
-      resetMeetup();
-      setMeetupOk(true);
-      fadeInSuccess();
-    } catch (err) {
-      showSnackbar("Something went wrong. Please try again.", "error");
-    } finally {
-      setSubmitting(false);
-    }
+      resetMeetup(); setMeetupOk(true); fadeSuccess();
+    } catch (e) {
+      showSnackbar("Something went wrong. Try again.", "error");
+    } finally { setSubmitting(false); }
   };
 
-  // ── derived ───────────────────────────────────────────────────────────────
-  const activeCat     = CATEGORIES.find(c => c.name === category) || CATEGORIES[0];
-  const HEADER_PT     = insets.top + 64 + 16; // AppTopHeader height + breathing room
-  const userCity      = user?.location?.split(",")[0]?.trim();
+  const activeCat = CATEGORIES.find(c => c.name === category) || CATEGORIES[0];
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Render
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <ScreenShell
@@ -278,655 +240,599 @@ export default function PostTab({ navigation }) {
       routeName="Post"
       title={null}
       noPadding
-      absoluteHeader
       noPaddingBottom
+      background={C.bg}
       keyboardShouldPersistTaps="handled"
     >
-      {/* ── Gradient header ── */}
-      <LinearGradient
-        colors={[C.headerTop, C.bg]}
-        style={[s.header, { paddingTop: HEADER_PT }]}
-      >
-        {/* User identity */}
-        <View style={s.userRow}>
-          <Image
-            source={{ uri: user?.profileImageUri || "https://via.placeholder.com/150" }}
-            style={s.headerAvatar}
-          />
-          <View style={{ flex: 1 }}>
-            <Text style={s.headerName} numberOfLines={1}>{user?.fullName || "You"}</Text>
-            {userCity ? <Text style={s.headerCity}>{userCity}</Text> : null}
-          </View>
-        </View>
 
-        {/* Mode switcher */}
-        <View style={s.modeRow}>
+      {/* ─── SEGMENTED MODE CONTROL ─── */}
+      <View style={s.segWrap}>
+        <View style={s.segControl}>
           {[
-            { key: "Post",   icon: "article", label: "Share a Post",  sub: "Thoughts, housing, travel..." },
-            { key: "Meetup", icon: "event",   label: "Plan a Meetup", sub: "Organize a gathering"         },
+            { key: "Post",   label: "Share a Post"  },
+            { key: "Meetup", label: "Plan a Meetup" },
           ].map((m) => (
             <Pressable
               key={m.key}
-              style={[s.modeCard, mode === m.key && s.modeCardActive]}
-              onPress={() => handleModeSwitch(m.key)}
+              onPress={() => switchMode(m.key)}
+              style={[s.segTab, mode === m.key && s.segTabActive]}
             >
-              <MaterialIcons name={m.icon} size={21} color={mode === m.key ? C.white : C.inkMid} />
-              <View style={{ flex: 1 }}>
-                <Text style={[s.modeLabel, mode === m.key && s.modeLabelActive]}>{m.label}</Text>
-                <Text style={[s.modeSub, mode === m.key && s.modeSubActive]} numberOfLines={1}>{m.sub}</Text>
-              </View>
+              <Text style={[s.segTabTxt, mode === m.key && s.segTabTxtActive]}>
+                {m.label}
+              </Text>
             </Pressable>
           ))}
         </View>
-      </LinearGradient>
+      </View>
 
-      {/* ── Form card ── */}
-      <View style={s.formCard}>
+      {/* ═══ SWIPEABLE PAGER — both pages always rendered ═══ */}
+      <View style={{ overflow: "hidden" }} {...swipePan.panHandlers}>
+        <Animated.View style={{ flexDirection: "row", width: width * 2, transform: [{ translateX }] }}>
 
-        {/* ══ POST MODE ══ */}
-        {mode === "Post" && (
-          showPostSuccess ? (
-            /* Post success */
-            <Animated.View style={[s.successView, { opacity: successFade }]}>
-              <View style={[s.successCircle, { backgroundColor: activeCat.color }]}>
-                <MaterialIcons name="check" size={34} color={C.white} />
-              </View>
-              <Text style={s.successHead}>Post shared.</Text>
-              <Text style={s.successSub}>Your post is now live in the feed.</Text>
-              <View style={s.successBtns}>
-                <Pressable style={s.successOutline} onPress={() => navigation.navigate("Home")}>
-                  <Text style={[s.successOutlineTxt, { color: activeCat.color }]}>View feed</Text>
-                </Pressable>
-                <Pressable
-                  style={[s.successFill, { backgroundColor: activeCat.color }]}
-                  onPress={() => { successFade.setValue(0); setPostOk(false); }}
+          {/* ── PAGE 0: POST ── */}
+          <View style={{ width }}>
+            {showPostSuccess ? (
+              <Animated.View style={[s.successView, { opacity: successFade }]}>
+                <View style={[s.successCircle, { backgroundColor: activeCat.color }]}>
+                  <MaterialIcons name="check" size={36} color={C.white} />
+                </View>
+                <Text style={s.successHead}>Post shared.</Text>
+                <Text style={s.successSub}>Your post is now live in the feed.</Text>
+                <View style={s.successBtns}>
+                  <Pressable style={s.successOutline} onPress={() => navigation.navigate("Home")}>
+                    <Text style={[s.successOutlineTxt, { color: activeCat.color }]}>View feed</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[s.successFill, { backgroundColor: activeCat.color }]}
+                    onPress={() => { successFade.setValue(0); setPostOk(false); }}
+                  >
+                    <Text style={s.successFillTxt}>Post again</Text>
+                  </Pressable>
+                </View>
+              </Animated.View>
+            ) : (
+              <View style={s.formWrap}>
+                {/* Category chips */}
+                <ScrollView
+                  horizontal showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={s.catStrip} nestedScrollEnabled
                 >
-                  <Text style={s.successFillTxt}>Post again</Text>
-                </Pressable>
-              </View>
-            </Animated.View>
-          ) : (
-            /* Post form */
-            <View style={s.form}>
-
-              {/* Category grid */}
-              <View style={s.group}>
-                <Text style={s.label}>CHOOSE A CATEGORY</Text>
-                <View style={s.catGrid}>
                   {CATEGORIES.map((cat) => {
                     const active = category === cat.name;
                     return (
                       <Pressable
                         key={cat.name}
-                        style={[
-                          s.catBlock,
-                          { backgroundColor: active ? cat.color : cat.bg, borderColor: active ? cat.color : C.border },
-                        ]}
+                        style={[s.catPill, active && { backgroundColor: cat.color, borderColor: cat.color }]}
                         onPress={() => setCategory(cat.name)}
                       >
-                        <MaterialIcons name={cat.icon} size={19} color={active ? C.white : cat.color} />
-                        <Text style={[s.catBlockTxt, { color: active ? C.white : cat.color }]} numberOfLines={2}>
-                          {cat.name}
+                        <MaterialIcons name={cat.icon} size={13} color={active ? C.white : cat.color} />
+                        <Text style={[s.catPillTxt, { color: active ? C.white : cat.color }]}>
+                          {cat.name.split(" / ")[0]}
                         </Text>
                       </Pressable>
                     );
                   })}
-                </View>
-              </View>
+                </ScrollView>
 
-              {/* Title */}
-              <View style={s.group}>
-                <View style={s.labelRow}>
-                  <Text style={s.label}>WHAT'S IT ABOUT?</Text>
-                  <Text style={[s.charCount, { color: charCountColor(title.length, 80) }]}>{title.length}/80</Text>
+                {/* Writing card */}
+                <View style={s.writeCard}>
+                  <TextInput
+                    style={s.titleField}
+                    placeholder="Give your post a headline…"
+                    placeholderTextColor={C.inkMuted}
+                    value={title}
+                    onChangeText={(t) => setTitle(t.slice(0, 80))}
+                    multiline maxLength={80}
+                  />
+                  <View style={s.writeSep} />
+                  <TextInput
+                    style={s.bodyField}
+                    placeholder="Share more context — what you're looking for, what makes this interesting…"
+                    placeholderTextColor={C.inkMuted}
+                    multiline textAlignVertical="top"
+                    value={details}
+                    onChangeText={(t) => setDetails(t.slice(0, 500))}
+                    maxLength={500}
+                  />
+                  <View style={s.charRow}>
+                    <Text style={[s.charCount, { color: charColor(details.length, 500) }]}>{details.length}/500</Text>
+                  </View>
+                  {image && (
+                    <View style={s.imgPreviewWrap}>
+                      <Image source={{ uri: image.uri }} style={s.imgPreview} />
+                      <Pressable style={s.imgRemove} onPress={() => setImage(null)}>
+                        <MaterialIcons name="close" size={15} color={C.white} />
+                      </Pressable>
+                    </View>
+                  )}
+                  <View style={s.cardActionSep} />
+                  <View style={s.cardActions}>
+                    <Pressable style={s.cardPhotoBtn} onPress={() => pickImage(setImage)}>
+                      <MaterialIcons
+                        name={image ? "image" : "add-photo-alternate"} size={21}
+                        color={image ? activeCat.color : C.inkMuted}
+                      />
+                    </Pressable>
+                    <View style={[s.cardCatBadge, { backgroundColor: activeCat.bg }]}>
+                      <MaterialIcons name={activeCat.icon} size={11} color={activeCat.color} />
+                      <Text style={[s.cardCatTxt, { color: activeCat.color }]}>{activeCat.name.split(" / ")[0]}</Text>
+                    </View>
+                    <View style={{ flex: 1 }} />
+                    <Pressable
+                      style={[s.cardSubmit, { backgroundColor: activeCat.color }, submitting && { opacity: 0.7 }]}
+                      onPress={handleSharePost} disabled={submitting}
+                    >
+                      {submitting
+                        ? <ActivityIndicator size="small" color={C.white} />
+                        : <Text style={s.cardSubmitTxt}>Share Post</Text>
+                      }
+                    </Pressable>
+                  </View>
                 </View>
-                <TextInput
-                  style={[s.input, s.titleInput, inputStyle(titleFocused)]}
-                  placeholder="Looking for a travel partner to Jaipur..."
-                  placeholderTextColor={C.inkMuted}
-                  value={title}
-                  onChangeText={(t) => setTitle(t.slice(0, 80))}
-                  onFocus={() => setTF(true)}
-                  onBlur={() => setTF(false)}
-                  maxLength={80}
-                />
-              </View>
 
-              {/* Details */}
-              <View style={s.group}>
-                <View style={s.labelRow}>
-                  <Text style={s.label}>SHARE THE DETAILS</Text>
-                  <Text style={[s.charCount, { color: charCountColor(details.length, 500) }]}>{details.length}/500</Text>
+                {profileBanner && <ProfileBanner onFinish={() => { setProfileBanner(false); navigation.navigate("Account"); }} />}
+              </View>
+            )}
+          </View>
+          {/* ── end page 0 ── */}
+
+          {/* ── PAGE 1: MEETUP ── */}
+          <View style={{ width }}>
+            {meetupOk ? (
+              <Animated.View style={[s.successView, { opacity: successFade }]}>
+                <Text style={s.successEmoji}>🎉</Text>
+                <Text style={s.successHead}>Meetup created.</Text>
+                <Text style={s.successSub}>Others can discover and join. You're in the group chat.</Text>
+                <View style={s.successBtns}>
+                  <Pressable style={s.successOutline} onPress={() => { setMeetupOk(false); navigation.navigate("Home"); }}>
+                    <Text style={[s.successOutlineTxt, { color: C.terra }]}>See Meetups</Text>
+                  </Pressable>
+                  <Pressable style={[s.successFill, { backgroundColor: C.terra }]} onPress={() => { successFade.setValue(0); setMeetupOk(false); }}>
+                    <Text style={s.successFillTxt}>Create another</Text>
+                  </Pressable>
                 </View>
-                <TextInput
-                  style={[s.input, s.textArea, inputStyle(detailsFocused)]}
-                  placeholder="Share more context — what you're looking for, what makes this interesting..."
-                  placeholderTextColor={C.inkMuted}
-                  multiline
-                  textAlignVertical="top"
-                  value={details}
-                  onChangeText={(t) => setDetails(t.slice(0, 500))}
-                  onFocus={() => setDF(true)}
-                  onBlur={() => setDF(false)}
-                  maxLength={500}
-                />
-              </View>
-
-              {/* Image upload */}
-              <View style={s.group}>
-                <Text style={s.label}>ADD AN IMAGE <Text style={s.optional}>(Optional)</Text></Text>
-                <Pressable style={[s.uploadZone, image && s.uploadFilled]} onPress={() => pickImage(setImage)}>
-                  {image ? (
+              </Animated.View>
+            ) : (
+              <View style={s.formWrap}>
+                {/* Cover image */}
+                <Pressable style={[s.coverZone, mImage && s.coverZoneFilled]} onPress={() => pickImage(setMImg)}>
+                  {mImage ? (
                     <>
-                      <Image source={{ uri: image.uri }} style={s.uploadPreview} />
-                      <Pressable style={s.removeBtn} onPress={() => setImage(null)}>
-                        <MaterialIcons name="close" size={17} color={C.white} />
+                      <Image source={{ uri: mImage.uri }} style={s.coverImg} />
+                      <Pressable style={s.imgRemoveCover} onPress={() => setMImg(null)}>
+                        <MaterialIcons name="close" size={15} color={C.white} />
                       </Pressable>
                     </>
                   ) : (
-                    <View style={s.uploadEmpty}>
-                      <View style={s.uploadIconBg}>
-                        <MaterialIcons name="add-a-photo" size={24} color={C.terra} />
-                      </View>
-                      <Text style={s.uploadMain}>Tap to add a photo</Text>
-                      <Text style={s.uploadSub}>JPG or PNG · Max 2 MB</Text>
+                    <View style={s.coverEmpty}>
+                      <MaterialIcons name="add-photo-alternate" size={26} color={C.terra} />
+                      <Text style={s.coverEmptyTitle}>Add a cover photo</Text>
+                      <Text style={s.coverEmptySub}>Makes your meetup stand out in the feed</Text>
                     </View>
                   )}
                 </Pressable>
-              </View>
 
-              {/* Profile banner */}
-              {showProfileBanner && (
-                <View style={s.profileBanner}>
-                  <MaterialIcons name="warning-amber" size={15} color={C.amber} />
-                  <Text style={s.profileBannerTxt}>Complete your profile to post.</Text>
-                  <Pressable onPress={() => { setProfileBanner(false); navigation.navigate("Account"); }}>
-                    <Text style={s.profileBannerLink}>Finish →</Text>
+                {/* Writing card */}
+                <View style={s.writeCard}>
+                  <TextInput
+                    style={s.titleField} placeholder="Name your meetup…"
+                    placeholderTextColor={C.inkMuted} value={mTitle}
+                    onChangeText={(t) => setMT(t.slice(0, 80))} multiline maxLength={80}
+                  />
+                  <View style={s.writeSep} />
+                  <TextInput
+                    style={s.bodyField} placeholder="What's happening? Who should come?"
+                    placeholderTextColor={C.inkMuted} multiline textAlignVertical="top"
+                    value={mDetails} onChangeText={(t) => setMD(t.slice(0, 400))} maxLength={400}
+                  />
+                  <View style={s.charRow}>
+                    <Text style={[s.charCount, { color: charColor(mDetails.length, 400) }]}>{mDetails.length}/400</Text>
+                  </View>
+                </View>
+
+                {/* Date + Time */}
+                <View style={s.eventRow}>
+                  <Pressable style={s.eventChip} onPress={() => setSDP(true)}>
+                    <View style={[s.eventIcon, { backgroundColor: C.terraLight }]}>
+                      <Text style={s.eventIconDay}>{mDate.getDate()}</Text>
+                      <Text style={s.eventIconMon}>{mDate.toLocaleDateString("en-US", { month: "short" }).toUpperCase()}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.eventChipLabel}>DATE</Text>
+                      <Text style={s.eventChipValue}>{fmtDate(mDate)}</Text>
+                    </View>
+                    <MaterialIcons name="chevron-right" size={16} color={C.inkMuted} />
+                  </Pressable>
+                  <Pressable style={s.eventChip} onPress={() => setSTP(true)}>
+                    <View style={[s.eventIcon, { backgroundColor: C.catHousingBg }]}>
+                      <MaterialIcons name="schedule" size={19} color={C.catHousing} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.eventChipLabel}>TIME</Text>
+                      <Text style={s.eventChipValue}>{fmtTime(mTime)}</Text>
+                    </View>
+                    <MaterialIcons name="chevron-right" size={16} color={C.inkMuted} />
                   </Pressable>
                 </View>
-              )}
 
-              {/* Submit */}
-              <Pressable
-                style={[s.submitBtn, { backgroundColor: activeCat.color }, isSubmitting && { opacity: 0.72 }]}
-                onPress={handleSharePost}
-                disabled={isSubmitting}
-              >
-                {isSubmitting
-                  ? <ActivityIndicator color={C.white} size="small" />
-                  : <Text style={s.submitBtnTxt}>Share Post</Text>
-                }
-              </Pressable>
-              <View style={{ height: 130 }} />
-            </View>
-          )
-        )}
+                {showDatePicker && (
+                  <DateTimePicker value={mDate} mode="date" minimumDate={new Date()}
+                    onChange={(e, d) => { setSDP(Platform.OS === "ios"); if (d) setMDate(d); }} />
+                )}
+                {showTimePicker && (
+                  <DateTimePicker value={mTime} mode="time"
+                    onChange={(e, d) => { setSTP(Platform.OS === "ios"); if (d) setMTime(d); }} />
+                )}
 
-        {/* ══ MEETUP MODE ══ */}
-        {mode === "Meetup" && (
-          meetupSuccess ? (
-            /* Meetup success */
-            <Animated.View style={[s.successView, { opacity: successFade }]}>
-              <Text style={s.successEmoji}>🎉</Text>
-              <Text style={s.successHead}>Meetup created.</Text>
-              <Text style={s.successSub}>Others can now discover and join it. You've been added to the group chat.</Text>
-              <View style={s.successBtns}>
-                <Pressable
-                  style={s.successOutline}
-                  onPress={() => { setMeetupOk(false); navigation.navigate("Home"); }}
-                >
-                  <Text style={[s.successOutlineTxt, { color: C.terra }]}>See Meetups</Text>
-                </Pressable>
-                <Pressable
-                  style={[s.successFill, { backgroundColor: C.terra }]}
-                  onPress={() => { successFade.setValue(0); setMeetupOk(false); }}
-                >
-                  <Text style={s.successFillTxt}>Create another</Text>
-                </Pressable>
-              </View>
-            </Animated.View>
-          ) : (
-            /* Meetup form */
-            <View style={s.form}>
-
-              {/* Cover image */}
-              <View style={s.group}>
-                <Text style={s.label}>COVER IMAGE <Text style={s.optional}>(Optional)</Text></Text>
-                <Pressable
-                  style={[s.uploadZone, s.coverZone, meetupImage && s.uploadFilled]}
-                  onPress={() => pickImage(setMImg)}
-                >
-                  {meetupImage ? (
-                    <>
-                      <Image source={{ uri: meetupImage.uri }} style={s.uploadPreview} />
-                      <Pressable style={s.removeBtn} onPress={() => setMImg(null)}>
-                        <MaterialIcons name="close" size={17} color={C.white} />
+                {/* Members + Hometown */}
+                <View style={s.detailCard}>
+                  <View style={s.detailRow}>
+                    <View style={[s.detailIcon, { backgroundColor: C.catTravelBg }]}>
+                      <MaterialIcons name="group" size={15} color={C.catTravel} />
+                    </View>
+                    <Text style={[s.detailLabel, { flex: 1 }]}>MAX MEMBERS</Text>
+                    <View style={s.stepperInline}>
+                      <Pressable style={[s.stepperBtn, mMembers <= 2 && s.stepperBtnDim]}
+                        onPress={() => { if (mMembers > 2) { setMM(p => p - 1); bumpStepper(); } }} disabled={mMembers <= 2}>
+                        <MaterialIcons name="remove" size={15} color={mMembers <= 2 ? C.inkMuted : C.terra} />
                       </Pressable>
-                    </>
-                  ) : (
-                    <View style={s.uploadEmpty}>
-                      <View style={s.uploadIconBg}>
-                        <MaterialIcons name="add-a-photo" size={28} color={C.terra} />
-                      </View>
-                      <Text style={s.uploadMain}>Add a cover photo</Text>
-                      <Text style={s.uploadSub}>A great photo makes people want to join</Text>
+                      <Animated.Text style={[s.stepperNum, { transform: [{ scale: stepperScale }] }]}>{mMembers}</Animated.Text>
+                      <Pressable style={[s.stepperBtnFill, mMembers >= 50 && s.stepperBtnDim]}
+                        onPress={() => { if (mMembers < 50) { setMM(p => p + 1); bumpStepper(); } }} disabled={mMembers >= 50}>
+                        <MaterialIcons name="add" size={15} color={mMembers >= 50 ? C.inkMuted : C.white} />
+                      </Pressable>
                     </View>
-                  )}
+                  </View>
+                  <View style={s.detailSep} />
+                  <View style={s.detailRow}>
+                    <View style={[s.detailIcon, { backgroundColor: C.terraLight }]}>
+                      <MaterialIcons name="home" size={15} color={C.terra} />
+                    </View>
+                    <TextInput style={s.detailInput} placeholder="Target hometown (e.g. Patna)"
+                      placeholderTextColor={C.inkMuted} value={mHometown} onChangeText={setMH} />
+                  </View>
+                </View>
+
+                {/* Location */}
+                <View style={s.detailCard}>
+                  <View style={s.detailRow}>
+                    <View style={[s.detailIcon, { backgroundColor: C.catHousingBg }]}>
+                      <MaterialIcons name="location-on" size={15} color={C.catHousing} />
+                    </View>
+                    <TextInput style={s.detailInput} placeholder="Venue name (Chai Bar, someone's place…)"
+                      placeholderTextColor={C.inkMuted} value={mVenue} onChangeText={setMV} />
+                  </View>
+                  <View style={s.detailSep} />
+                  <View style={s.detailRow}>
+                    <View style={[s.detailIcon, { backgroundColor: C.catHousingBg }]}>
+                      <MaterialIcons name="place" size={15} color={C.catHousing} />
+                    </View>
+                    <TextInput style={s.detailInput} placeholder="City / Area (Koramangala, Bengaluru…)"
+                      placeholderTextColor={C.inkMuted} value={mLocation} onChangeText={setML} />
+                  </View>
+                </View>
+
+                {profileBanner && <ProfileBanner onFinish={() => { setProfileBanner(false); navigation.navigate("Account"); }} />}
+
+                <Pressable style={[s.meetupSubmit, submitting && { opacity: 0.7 }]}
+                  onPress={handleCreateMeetup} disabled={submitting}>
+                  {submitting
+                    ? <ActivityIndicator size="small" color={C.white} />
+                    : <Text style={s.meetupSubmitTxt}>Create Meetup</Text>
+                  }
                 </Pressable>
+                <View style={{ height: 120 }} />
               </View>
+            )}
+          </View>
+          {/* ── end page 1 ── */}
 
-              {/* ── THE GATHERING ── */}
-              <SectionLabel label="THE GATHERING" first />
-
-              <View style={s.group}>
-                <View style={s.labelRow}>
-                  <Text style={s.label}>TITLE</Text>
-                  <Text style={[s.charCount, { color: charCountColor(meetupTitle.length, 80) }]}>{meetupTitle.length}/80</Text>
-                </View>
-                <TextInput
-                  style={[s.input, s.titleInput, inputStyle(mtFocused)]}
-                  placeholder="Weekend chai and catch-up..."
-                  placeholderTextColor={C.inkMuted}
-                  value={meetupTitle}
-                  onChangeText={(t) => setMT(t.slice(0, 80))}
-                  onFocus={() => setMTF(true)}
-                  onBlur={() => setMTF(false)}
-                  maxLength={80}
-                />
-              </View>
-
-              <View style={s.group}>
-                <View style={s.labelRow}>
-                  <Text style={s.label}>DESCRIPTION</Text>
-                  <Text style={[s.charCount, { color: charCountColor(meetupDetails.length, 400) }]}>{meetupDetails.length}/400</Text>
-                </View>
-                <TextInput
-                  style={[s.input, s.textArea, inputStyle(mdFocused)]}
-                  placeholder="What's this meetup about? Who should come?"
-                  placeholderTextColor={C.inkMuted}
-                  multiline
-                  textAlignVertical="top"
-                  value={meetupDetails}
-                  onChangeText={(t) => setMD(t.slice(0, 400))}
-                  onFocus={() => setMDF(true)}
-                  onBlur={() => setMDF(false)}
-                  maxLength={400}
-                />
-              </View>
-
-              {/* ── WHEN & WHO ── */}
-              <SectionLabel label="WHEN & WHO" />
-
-              {/* Date + Time row */}
-              <View style={s.group}>
-                <Text style={s.label}>DATE & TIME</Text>
-                <View style={s.rowGap}>
-                  <Pressable style={s.dateBtn} onPress={() => setShowDate(true)}>
-                    <View style={s.dateTile}>
-                      <Text style={s.dateTileNum}>{meetupDate.getDate()}</Text>
-                      <Text style={s.dateTileMon}>
-                        {meetupDate.toLocaleDateString("en-US", { month: "short" }).toUpperCase()}
-                      </Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.dateBtnSub}>DATE</Text>
-                      <Text style={s.dateBtnVal}>{fmtDate(meetupDate)}</Text>
-                    </View>
-                    <MaterialIcons name="expand-more" size={18} color={C.inkMuted} />
-                  </Pressable>
-
-                  <Pressable style={s.dateBtn} onPress={() => setShowTime(true)}>
-                    <View style={[s.dateTile, { backgroundColor: C.catHousingBg }]}>
-                      <MaterialIcons name="schedule" size={20} color={C.catHousing} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.dateBtnSub}>TIME</Text>
-                      <Text style={s.dateBtnVal}>{fmtTime(meetupTime)}</Text>
-                    </View>
-                    <MaterialIcons name="expand-more" size={18} color={C.inkMuted} />
-                  </Pressable>
-                </View>
-              </View>
-
-              {showDatePicker && (
-                <DateTimePicker
-                  value={meetupDate}
-                  mode="date"
-                  minimumDate={new Date()}
-                  onChange={(e, d) => { setShowDate(Platform.OS === "ios"); if (d) setMDate(d); }}
-                />
-              )}
-              {showTimePicker && (
-                <DateTimePicker
-                  value={meetupTime}
-                  mode="time"
-                  onChange={(e, d) => { setShowTime(Platform.OS === "ios"); if (d) setMTime(d); }}
-                />
-              )}
-
-              {/* Stepper */}
-              <View style={s.group}>
-                <Text style={s.label}>MAX MEMBERS</Text>
-                <View style={s.stepperRow}>
-                  <Pressable
-                    style={[s.stepperBtnOuter, meetupMaxMembers <= 2 && s.stepperDisabled]}
-                    onPress={() => { if (meetupMaxMembers > 2) { setMMM(p => p - 1); bumpStepper(); } }}
-                    disabled={meetupMaxMembers <= 2}
-                  >
-                    <MaterialIcons name="remove" size={20} color={meetupMaxMembers <= 2 ? C.inkMuted : C.terra} />
-                  </Pressable>
-                  <Animated.Text style={[s.stepperVal, { transform: [{ scale: stepperScale }] }]}>
-                    {meetupMaxMembers}
-                  </Animated.Text>
-                  <Pressable
-                    style={[s.stepperBtnFill, meetupMaxMembers >= 50 && s.stepperDisabled]}
-                    onPress={() => { if (meetupMaxMembers < 50) { setMMM(p => p + 1); bumpStepper(); } }}
-                    disabled={meetupMaxMembers >= 50}
-                  >
-                    <MaterialIcons name="add" size={20} color={meetupMaxMembers >= 50 ? C.inkMuted : C.white} />
-                  </Pressable>
-                  <Text style={s.stepperNote}>people · min 2, max 50</Text>
-                </View>
-              </View>
-
-              {/* Hometown */}
-              <View style={s.group}>
-                <Text style={s.label}>TARGET HOMETOWN</Text>
-                <View style={[s.prefixWrap, inputStyle(hometownFocused)]}>
-                  <MaterialIcons name="home" size={16} color={C.inkMuted} style={{ flexShrink: 0 }} />
-                  <TextInput
-                    style={s.prefixInput}
-                    placeholder="Patna, Lucknow, Indore..."
-                    placeholderTextColor={C.inkMuted}
-                    value={meetupHometown}
-                    onChangeText={setMH}
-                    onFocus={() => setHF(true)}
-                    onBlur={() => setHF(false)}
-                  />
-                </View>
-                {user?.hometown ? <Text style={s.prefillNote}>Pre-filled from your profile</Text> : null}
-              </View>
-
-              {/* ── WHERE ── */}
-              <SectionLabel label="WHERE" />
-
-              <View style={s.group}>
-                <Text style={s.label}>VENUE NAME</Text>
-                <View style={[s.prefixWrap, inputStyle(venueFocused)]}>
-                  <MaterialIcons name="location-on" size={16} color={C.inkMuted} style={{ flexShrink: 0 }} />
-                  <TextInput
-                    style={s.prefixInput}
-                    placeholder="Chai Bar, Central Park, someone's place..."
-                    placeholderTextColor={C.inkMuted}
-                    value={meetupVenue}
-                    onChangeText={setMV}
-                    onFocus={() => setVF(true)}
-                    onBlur={() => setVF(false)}
-                  />
-                </View>
-              </View>
-
-              <View style={s.group}>
-                <Text style={s.label}>CITY / LOCATION</Text>
-                <View style={[s.prefixWrap, inputStyle(locationFocused)]}>
-                  <MaterialIcons name="place" size={16} color={C.inkMuted} style={{ flexShrink: 0 }} />
-                  <TextInput
-                    style={s.prefixInput}
-                    placeholder="Bengaluru, Koramangala..."
-                    placeholderTextColor={C.inkMuted}
-                    value={meetupLocation}
-                    onChangeText={setML}
-                    onFocus={() => setLF(true)}
-                    onBlur={() => setLF(false)}
-                  />
-                </View>
-                {user?.location ? <Text style={s.prefillNote}>Pre-filled from your profile</Text> : null}
-              </View>
-
-              {/* Profile banner */}
-              {showProfileBanner && (
-                <View style={s.profileBanner}>
-                  <MaterialIcons name="warning-amber" size={15} color={C.amber} />
-                  <Text style={s.profileBannerTxt}>Complete your profile to post.</Text>
-                  <Pressable onPress={() => { setProfileBanner(false); navigation.navigate("Account"); }}>
-                    <Text style={s.profileBannerLink}>Finish →</Text>
-                  </Pressable>
-                </View>
-              )}
-
-              {/* Submit */}
-              <Pressable
-                style={[s.submitBtn, { backgroundColor: C.terra }, isSubmitting && { opacity: 0.72 }]}
-                onPress={handleCreateMeetup}
-                disabled={isSubmitting}
-              >
-                {isSubmitting
-                  ? <ActivityIndicator color={C.white} size="small" />
-                  : <Text style={s.submitBtnTxt}>Create Meetup</Text>
-                }
-              </Pressable>
-              <View style={{ height: 130 }} />
-            </View>
-          )
-        )}
+        </Animated.View>
       </View>
+
     </ScreenShell>
+  );
+}
+
+// ─── PROFILE BANNER ───────────────────────────────────────────────────────────
+function ProfileBanner({ onFinish }) {
+  return (
+    <View style={s.profileBanner}>
+      <MaterialIcons name="info-outline" size={14} color={C.amber} />
+      <Text style={s.profileBannerTxt}>Complete your profile to post.</Text>
+      <Pressable onPress={onFinish}>
+        <Text style={s.profileBannerLink}>Finish →</Text>
+      </Pressable>
+    </View>
   );
 }
 
 // ─── STYLES ────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  // ── Header ──
-  header: {
-    paddingHorizontal: 20,
-    paddingBottom: 24,
-  },
-  userRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 18,
-  },
-  headerAvatar: {
-    width: 38, height: 38, borderRadius: 19,
-    backgroundColor: C.border, flexShrink: 0,
-  },
-  headerName: { fontSize: 14, fontWeight: "700", color: C.ink, letterSpacing: -0.2 },
-  headerCity:  { fontSize: 11, fontWeight: "400", color: C.inkMuted, marginTop: 1 },
 
-  // ── Mode switcher ──
-  modeRow: { flexDirection: "row", gap: 10 },
-  modeCard: {
-    flex: 1, flexDirection: "row", alignItems: "center", gap: 10,
-    backgroundColor: C.surface, borderRadius: 14, padding: 12,
+  // ── Segmented control ──
+  segWrap: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 16,
+  },
+  segControl: {
+    flexDirection: "row",
+    backgroundColor: C.inputBg,
+    borderRadius: 14,
+    padding: 4,
+  },
+  segTab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: "center",
+    borderRadius: 11,
+  },
+  segTabActive: {
+    backgroundColor: C.white,
+    shadowColor: C.ink,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  segTabTxt: { fontSize: 13, fontWeight: "700", color: C.inkMuted, letterSpacing: -0.1 },
+  segTabTxtActive: { color: C.terra, fontWeight: "800" },
+
+  // ── Form wrapper ──
+  formWrap: { paddingBottom: 32 },
+
+  // ── Category strip ──
+  catStrip: {
+    paddingHorizontal: 20,
+    paddingBottom: 4,
+    gap: 8,
+  },
+  catPill: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 13, paddingVertical: 8,
+    borderRadius: 20, backgroundColor: C.surface,
     borderWidth: 1.5, borderColor: C.border,
   },
-  modeCardActive:  { backgroundColor: C.terra, borderColor: C.terra },
-  modeLabel:       { fontSize: 12, fontWeight: "800", color: C.inkMid, letterSpacing: -0.1 },
-  modeLabelActive: { color: C.white },
-  modeSub:         { fontSize: 9,  fontWeight: "500", color: C.inkMuted, marginTop: 1 },
-  modeSubActive:   { color: "rgba(255,255,255,0.72)" },
+  catPillTxt: { fontSize: 12, fontWeight: "700" },
 
-  // ── Form card ──
-  formCard: {
+  // ── Writing card ──
+  writeCard: {
+    marginHorizontal: 16,
+    marginTop: 14,
     backgroundColor: C.surface,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    marginTop: -20,
-    minHeight: SCREEN_H,
+    borderRadius: 20,
+    padding: 20,
     shadowColor: C.ink,
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.07,
-    shadowRadius: 14,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
   },
-  form: {
-    paddingHorizontal: 20,
-    paddingTop: 28,
-    gap: 20,
-  },
-
-  // ── Form primitives ──
-  group:    { gap: 8 },
-  rowGap:   { flexDirection: "row", gap: 10 },
-  labelRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  label:    { fontSize: 10, fontWeight: "900", color: C.inkMuted, letterSpacing: 1.4 },
-  optional: { fontWeight: "600", letterSpacing: 0.5 },
-  charCount:{ fontSize: 11, fontWeight: "600" },
-
-  // ── Section label ──
-  sectionWrap: { marginBottom: 4 },
-  sectionText: { fontSize: 10, fontWeight: "900", color: C.inkMuted, letterSpacing: 1.5 },
-
-  // ── Text inputs ──
-  input: {
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 15,
-    color: C.ink,
-    fontWeight: "500",
-  },
-  titleInput: {
+  titleField: {
     fontFamily: SERIF,
-    fontSize: 17,
+    fontSize: 21,
     fontWeight: "700",
-    minHeight: 52,
+    color: C.ink,
+    lineHeight: 29,
+    minHeight: 50,
+    padding: 0,
+    letterSpacing: -0.3,
   },
-  textArea: {
-    minHeight: 110,
-    lineHeight: 22,
-    paddingTop: 14,
+  writeSep: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: C.divider,
+    marginVertical: 14,
+  },
+  bodyField: {
+    fontSize: 15,
+    color: C.inkMid,
+    lineHeight: 24,
+    minHeight: 100,
+    padding: 0,
     textAlignVertical: "top",
+    fontWeight: "400",
+  },
+  charRow: { alignItems: "flex-end", marginTop: 6 },
+  charCount: { fontSize: 11, fontWeight: "600" },
+
+  // ── Inline image preview ──
+  imgPreviewWrap: {
+    marginTop: 14,
+    borderRadius: 12,
+    overflow: "hidden",
+    aspectRatio: 16 / 9,
+  },
+  imgPreview: { width: "100%", height: "100%", resizeMode: "cover" },
+  imgRemove: {
+    position: "absolute", top: 8, right: 8,
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center", justifyContent: "center",
   },
 
-  // ── Prefix inputs (icon + text) ──
-  prefixWrap: {
+  // ── Card action row (inside write card) ──
+  cardActionSep: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: C.divider,
+    marginTop: 14,
+    marginBottom: 10,
+  },
+  cardActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    gap: 8,
   },
-  prefixInput: {
-    flex: 1, fontSize: 14, fontWeight: "500", color: C.ink, padding: 0,
-  },
-  prefillNote: {
-    fontSize: 10, color: C.inkMuted, fontWeight: "500", paddingLeft: 2, marginTop: 2,
-  },
-
-  // ── Category grid ──
-  catGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  catBlock: {
-    width: (width - 48) / 2,
-    height: 58,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 9,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    borderWidth: 1.5,
-  },
-  catBlockTxt: { fontSize: 11, fontWeight: "700", flex: 1, lineHeight: 14 },
-
-  // ── Upload zone ──
-  uploadZone: {
-    borderWidth: 1.5, borderStyle: "dashed", borderColor: C.border,
-    borderRadius: 16, height: 112, overflow: "hidden",
+  cardPhotoBtn: {
+    width: 34, height: 34, borderRadius: 17,
     alignItems: "center", justifyContent: "center",
+    backgroundColor: C.bg,
   },
-  coverZone: { height: 164 },
-  uploadFilled: { borderStyle: "solid" },
-  uploadEmpty: { alignItems: "center", gap: 8, paddingHorizontal: 20 },
-  uploadIconBg: {
-    width: 52, height: 52, borderRadius: 26,
-    backgroundColor: C.terraLight,
-    alignItems: "center", justifyContent: "center",
+  cardCatBadge: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: 9, paddingVertical: 5, borderRadius: 20,
   },
-  uploadMain: { fontSize: 13, fontWeight: "700", color: C.inkMid, textAlign: "center" },
-  uploadSub:  { fontSize: 11, fontWeight: "500", color: C.inkMuted, textAlign: "center" },
-  uploadPreview: { width: "100%", height: "100%", resizeMode: "cover" },
-  removeBtn: {
-    position: "absolute", top: 10, right: 10,
-    width: 30, height: 30, borderRadius: 15,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    alignItems: "center", justifyContent: "center",
+  cardCatTxt: { fontSize: 11, fontWeight: "800" },
+  cardSubmit: {
+    paddingHorizontal: 18, paddingVertical: 9,
+    borderRadius: 20, minWidth: 100, alignItems: "center",
   },
-
-  // ── Date/time buttons ──
-  dateBtn: {
-    flex: 1, flexDirection: "row", alignItems: "center", gap: 10,
-    backgroundColor: C.inputBg, borderRadius: 12, padding: 12,
-    borderWidth: 1, borderColor: C.border,
-  },
-  dateTile: {
-    width: 42, height: 42, borderRadius: 8,
-    backgroundColor: C.terraLight,
-    alignItems: "center", justifyContent: "center",
-    flexShrink: 0,
-  },
-  dateTileNum: { fontSize: 15, fontWeight: "900", color: C.terra, lineHeight: 17 },
-  dateTileMon: { fontSize: 7, fontWeight: "800", color: C.terra, letterSpacing: 0.8 },
-  dateBtnSub: { fontSize: 8, fontWeight: "900", color: C.inkMuted, letterSpacing: 1.2 },
-  dateBtnVal: { fontSize: 12, fontWeight: "700", color: C.ink, marginTop: 2 },
-
-  // ── Stepper ──
-  stepperRow: { flexDirection: "row", alignItems: "center", gap: 14 },
-  stepperBtnOuter: {
-    width: 42, height: 42, borderRadius: 21,
-    alignItems: "center", justifyContent: "center",
-    borderWidth: 1.5, borderColor: C.terra,
-  },
-  stepperBtnFill: {
-    width: 42, height: 42, borderRadius: 21,
-    alignItems: "center", justifyContent: "center",
-    backgroundColor: C.terra,
-  },
-  stepperDisabled: { borderColor: C.border, backgroundColor: C.border, opacity: 0.45 },
-  stepperVal:  { fontSize: 26, fontWeight: "900", color: C.ink, minWidth: 38, textAlign: "center" },
-  stepperNote: { flex: 1, fontSize: 11, color: C.inkMuted, fontWeight: "500" },
+  cardSubmitTxt: { fontSize: 13, fontWeight: "800", color: C.white, letterSpacing: 0.2 },
 
   // ── Profile banner ──
   profileBanner: {
     flexDirection: "row", alignItems: "center", gap: 8,
-    backgroundColor: C.amberLight, borderRadius: 10, padding: 12,
+    backgroundColor: C.amberLight, borderRadius: 12, padding: 12,
     borderWidth: 1, borderColor: C.amberBorder,
+    marginHorizontal: 16, marginTop: 10,
   },
   profileBannerTxt:  { flex: 1, fontSize: 12, fontWeight: "600", color: C.amber },
   profileBannerLink: { fontSize: 12, fontWeight: "800", color: C.amber },
 
-  // ── Submit button ──
-  submitBtn: {
-    height: 54, borderRadius: 27,
-    alignItems: "center", justifyContent: "center",
-    shadowColor: C.terra, shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.28, shadowRadius: 10, elevation: 5,
+  // ── Meetup: cover image ──
+  coverZone: {
+    marginHorizontal: 16,
+    height: 175,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: C.border,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: C.surface,
   },
-  submitBtnTxt: {
-    fontSize: 14, fontWeight: "900", color: C.white,
-    letterSpacing: 0.8, textTransform: "uppercase",
+  coverZoneFilled: { borderStyle: "solid", borderColor: "transparent" },
+  coverImg: { width: "100%", height: "100%", resizeMode: "cover" },
+  imgRemoveCover: {
+    position: "absolute", top: 10, right: 10,
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center", justifyContent: "center",
+  },
+  coverEmpty: { alignItems: "center", gap: 6 },
+  coverEmptyTitle: { fontSize: 14, fontWeight: "700", color: C.inkMid, marginTop: 4 },
+  coverEmptySub:   { fontSize: 12, color: C.inkMuted },
+
+  // ── Meetup: event row ──
+  eventRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginHorizontal: 16,
+    marginTop: 12,
+  },
+  eventChip: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: C.surface,
+    borderRadius: 16,
+    padding: 13,
+    borderWidth: 1,
+    borderColor: C.border,
+    shadowColor: C.ink,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  eventIcon: {
+    width: 38, height: 38, borderRadius: 10,
+    alignItems: "center", justifyContent: "center", flexShrink: 0,
+  },
+  eventIconDay: { fontSize: 14, fontWeight: "900", color: C.terra, lineHeight: 16 },
+  eventIconMon: { fontSize: 7,  fontWeight: "800", color: C.terra, letterSpacing: 0.8 },
+  eventChipLabel: { fontSize: 8, fontWeight: "900", color: C.inkMuted, letterSpacing: 1.2 },
+  eventChipValue: { fontSize: 12, fontWeight: "700", color: C.ink, marginTop: 2 },
+
+  // ── Meetup: detail card ──
+  detailCard: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    backgroundColor: C.surface,
+    borderRadius: 16,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: C.border,
+    shadowColor: C.ink,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  detailRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  detailSep: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: C.divider,
+    marginLeft: 52,
+  },
+  detailIcon: {
+    width: 30, height: 30, borderRadius: 8,
+    alignItems: "center", justifyContent: "center", flexShrink: 0,
+  },
+  detailLabel: { fontSize: 13, fontWeight: "600", color: C.inkMid },
+  detailInput: { flex: 1, fontSize: 14, fontWeight: "500", color: C.ink, padding: 0 },
+
+  // ── Stepper ──
+  stepperInline: { flexDirection: "row", alignItems: "center", gap: 10 },
+  stepperBtn: {
+    width: 30, height: 30, borderRadius: 15,
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1.5, borderColor: C.terra,
+  },
+  stepperBtnFill: {
+    width: 30, height: 30, borderRadius: 15,
+    alignItems: "center", justifyContent: "center",
+    backgroundColor: C.terra,
+  },
+  stepperBtnDim: { borderColor: C.border, backgroundColor: C.border, opacity: 0.4 },
+  stepperNum: { fontSize: 18, fontWeight: "900", color: C.ink, minWidth: 28, textAlign: "center" },
+
+  // ── Meetup submit ──
+  meetupSubmit: {
+    marginHorizontal: 16,
+    marginTop: 20,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: C.terra,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: C.terra,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  meetupSubmitTxt: {
+    fontSize: 15, fontWeight: "800", color: C.white, letterSpacing: 0.3,
   },
 
   // ── Success view ──
   successView: {
-    paddingTop: 56, paddingHorizontal: 28,
-    paddingBottom: 32, alignItems: "center", gap: 14,
+    paddingTop: 60, paddingHorizontal: 32, paddingBottom: 40,
+    alignItems: "center", gap: 14,
   },
   successCircle: {
-    width: 84, height: 84, borderRadius: 42,
-    alignItems: "center", justifyContent: "center", marginBottom: 6,
+    width: 88, height: 88, borderRadius: 44,
+    alignItems: "center", justifyContent: "center", marginBottom: 8,
   },
-  successEmoji: { fontSize: 68, marginBottom: 4 },
+  successEmoji: { fontSize: 72, marginBottom: 4 },
   successHead: {
     fontFamily: SERIF, fontSize: 28, fontWeight: "700",
     color: C.ink, textAlign: "center", letterSpacing: -0.6,
   },
   successSub: {
     fontSize: 14, color: C.inkMid, textAlign: "center",
-    lineHeight: 22, paddingHorizontal: 12,
+    lineHeight: 22, paddingHorizontal: 10,
   },
-  successBtns: { flexDirection: "row", gap: 12, marginTop: 10, width: "100%" },
+  successBtns: { flexDirection: "row", gap: 12, marginTop: 12, width: "100%" },
   successOutline: {
     flex: 1, height: 50, borderRadius: 25,
     alignItems: "center", justifyContent: "center",
